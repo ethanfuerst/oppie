@@ -1,0 +1,36 @@
+name: PR Title Check
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions: {}
+
+jobs:
+  check-title:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check PR title follows conventional commits
+        run: |
+          TITLE="${{ github.event.pull_request.title }}"
+          # Pattern: type(optional-scope): description
+          # Types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert
+          PATTERN='^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([a-zA-Z0-9_-]+\))?: .+'
+
+          if [[ ! "$TITLE" =~ $PATTERN ]]; then
+            echo "❌ PR title does not follow conventional commits format."
+            echo ""
+            echo "Expected format: type(scope): description"
+            echo "  - type: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert"
+            echo "  - scope: optional"
+            echo ""
+            echo "Examples:"
+            echo "  feat: add plan/apply workflow"
+            echo "  fix(cli): handle missing config file"
+            echo "  docs: update README with new examples"
+            echo ""
+            echo "Your title: $TITLE"
+            exit 1
+          fi
+
+          echo "✅ PR title follows conventional commits format: $TITLE"
