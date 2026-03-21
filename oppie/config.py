@@ -1,0 +1,103 @@
+from enum import Enum
+from pathlib import Path
+from typing import Any
+
+import yaml  # type: ignore[import-untyped]
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+
+class InstanceType(Enum):
+    REPO = 'repo'
+    PORTFOLIO = 'portfolio'
+
+
+class ProviderType(Enum):
+    LOCAL = 'local'
+    LINEAR = 'linear'
+
+
+class LLMBackend(Enum):
+    OPENAI_COMPATIBLE = 'openai-compatible'
+    ANTHROPIC = 'anthropic'
+
+
+class LLMConfig(BaseModel):
+    model_config = ConfigDict(extra='ignore')
+
+    backend: LLMBackend
+    model: str
+    endpoint: str | None = None
+    max_tokens: int = 2000
+    temperature: float = 0.7
+
+    @field_validator('max_tokens')
+    @classmethod
+    def max_tokens_must_be_positive(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError(f'llm.max_tokens must be a positive integer, got {v}')
+        return v
+
+    @field_validator('temperature')
+    @classmethod
+    def temperature_in_range(cls, v: float) -> float:
+        if not (0.0 <= v <= 2.0):
+            raise ValueError(f'llm.temperature must be between 0.0 and 2.0, got {v}')
+        return v
+
+
+class ProviderConfig(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra='ignore')
+
+    provider_type: ProviderType = Field(alias='type')
+    api_key: str | None = None
+
+    def to_dict(self) -> dict:
+        """Serialize to dict. Exclude api_key — never write credentials to oppie.yaml."""
+        return {'type': self.provider_type.value}
+
+
+class OppieConfig(BaseModel):
+    model_config = ConfigDict(extra='ignore')
+
+    instance_type: InstanceType
+    provider: ProviderConfig
+    llm: LLMConfig | None = None
+
+
+def load_oppie_config(config_dir: Path) -> OppieConfig:
+    """Load and validate oppie.yaml from the given config directory."""
+    config_path = config_dir / 'oppie.yaml'
+    if not config_path.exists():
+        raise FileNotFoundError(f'Config file not found: {config_path}')
+
+    with open(config_path) as f:
+        data = yaml.safe_load(f)
+
+    if data is None:
+        raise ValueError(f'Config file is empty: {config_path}')
+
+    return OppieConfig(**data)
+
+
+def load_provider_credentials(config_dir: Path) -> dict[str, Any]:
+    """Load provider.yaml credentials. Return empty dict if file missing or empty."""
+    creds_path = config_dir / 'provider.yaml'
+    if not creds_path.exists():
+        return {}
+
+    with open(creds_path) as f:
+        data = yaml.safe_load(f)
+
+    if data is None:
+        return {}
+
+    return dict(data)
+
+
+def load_config(config_dir: Path) -> OppieConfig:
+    """Load oppie.yaml and merge provider.yaml credentials."""
+    config = load_oppie_config(config_dir)
+    credentials = load_provider_credentials(config_dir)
+    if 'api_key' in credentials:
+        config.provider.api_key = credentials['api_key']
+    return config
