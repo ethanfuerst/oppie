@@ -43,6 +43,27 @@ Allowed types: `feat`, `fix`, `ci`, `chore`, `docs`, `refactor`, `test`
 - Import model classes from their submodule, not from `oppie.models` (e.g., `from oppie.models.ticket import Ticket`, not `from oppie.models import Ticket`).
 - `oppie/models/__init__.py` only exports `SCHEMA_VERSION` and type aliases (`RunId`, `PlanId`).
 
+## Project structure
+
+- `oppie/models/` — Core data models (Ticket, Plan, Operation, Apply, etc.). Each in its own file.
+- `oppie/providers/` — Storage backends. `base.py` defines the `TicketProvider` ABC; `local.py` implements JSON-file-per-ticket storage with SQLite indexing.
+- `oppie/config.py` — YAML config loading, `OppieConfig` and `InstanceType` (local/remote).
+- `oppie/instance.py` — Instance initialization and discovery. Creates the directory tree under a home dir with a `.oppie-marker` file.
+- `oppie/artifacts.py` — `ArtifactStore` for saving/reading markdown artifacts (ask, plan, apply, report, context) under `artifacts/`.
+- `oppie/run_log.py` — `RunLog` for append-only JSONL run logging under `logs/runs.jsonl`.
+
+### Instance directory layout
+
+```
+<home>/
+  .oppie-marker        # JSON marker with version + instance type
+  config/              # YAML config
+  state/snapshots/     # State snapshots
+  tickets/             # JSON ticket files (local provider)
+  artifacts/{ask,plans,applies,reports,context}/
+  logs/runs.jsonl      # Append-only run log
+```
+
 ## Code style
 
 - Single quotes for strings.
