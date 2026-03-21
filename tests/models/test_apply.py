@@ -1,5 +1,17 @@
 from oppie.models.apply import ApplyResult, OperationResult, OperationStatus
 from oppie.models.operation import Operation
+from oppie.models.plan import Plan, PlanStatus
+
+
+def _make_plan(plan_id='deadbeef'):
+    return Plan(
+        plan_id=plan_id,
+        instruction='test instruction',
+        operations=[],
+        risks=[],
+        created_at='2026-01-01T00:00:00Z',
+        status=PlanStatus.SAVED,
+    )
 
 
 def test_operation_status_values():
@@ -66,13 +78,14 @@ def test_apply_result_construction():
     ]
     apply_result = ApplyResult(
         apply_id='a1b2c3d4',
-        plan_id='deadbeef',
+        plan=_make_plan(),
         results=results,
         duration=1.5,
         created_at='2026-03-01T11:00:00Z',
     )
 
     assert apply_result.apply_id == 'a1b2c3d4'
+    assert apply_result.plan_id == 'deadbeef'
     assert apply_result.duration == 1.5
     assert len(apply_result.results) == 1
 
@@ -110,7 +123,7 @@ def test_apply_result_mixed_statuses():
     ]
     apply_result = ApplyResult(
         apply_id='id-001',
-        plan_id='plan-001',
+        plan=_make_plan('plan-001'),
         results=results,
         duration=3.2,
         created_at='2026-03-01T12:00:00Z',
@@ -131,7 +144,7 @@ def test_apply_result_roundtrip():
     )
     apply_result = ApplyResult(
         apply_id='a1b2c3d4',
-        plan_id='deadbeef',
+        plan=_make_plan(),
         results=[OperationResult(operation=op, status=OperationStatus.OK)],
         duration=0.8,
         created_at='2026-03-01T11:00:00Z',
@@ -151,7 +164,7 @@ def test_apply_result_to_dict_serializes_enums():
     )
     apply_result = ApplyResult(
         apply_id='id-001',
-        plan_id='plan-001',
+        plan=_make_plan('plan-001'),
         results=[
             OperationResult(operation=op, status=OperationStatus.FAILED, error='oops')
         ],

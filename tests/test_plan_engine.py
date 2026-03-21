@@ -6,94 +6,59 @@ import pytest
 from oppie.llm.base import LLMResponse, TokenUsage
 from oppie.models.operation import Operation
 from oppie.models.plan import Plan, PlanStatus
-from oppie.models.ticket import Ticket, TicketMetadata, TicketSource
-from oppie.plan import (
-    PLAN_INDEX_FILENAME,
-    PLAN_RESPONSE_SCHEMA,
-    amend_plan,
-    find_similar_plans,
-    generate_plan,
-    generate_plan_fallback,
-    load_context,
-    load_plan,
-    run_preflight,
-    save_plan,
-)
+from oppie.plan import PlanEngine
 from oppie.providers.local import LocalProvider
+from tests.helpers import make_ticket, setup_instance, write_ticket
+
+# --- _load_context ---
 
 
-def _setup_instance(tmp_path):
-    """Create minimal instance directory structure."""
-    for d in ['tickets', 'context', 'artifacts/plans', 'state', 'logs']:
-        (tmp_path / d).mkdir(parents=True, exist_ok=True)
-    return tmp_path
-
-
-def _make_ticket(ticket_id, status='open', priority='medium', labels=None):
-    return Ticket(
-        id=ticket_id,
-        title=f'Ticket {ticket_id}',
-        status=status,
-        priority=priority,
-        owner='alice',
-        labels=labels or [],
-        created_at='2026-01-01T00:00:00Z',
-        updated_at='2026-01-01T00:00:00Z',
-        project='proj',
-        description=f'Description for {ticket_id}',
-        metadata=TicketMetadata(source=TicketSource.LOCAL),
-    )
-
-
-def _write_ticket(home, ticket):
-    """Write a ticket JSON file to the instance."""
-    path = home / 'tickets' / f'{ticket.id}.json'
-    path.write_text(json.dumps(ticket.to_dict(), indent=2) + '\n')
-
-
-# --- load_context ---
-
-
-def test_load_context_reads_existing_files(tmp_path):
-    home = _setup_instance(tmp_path)
+def test_load_context_reads_existing_files(plan_engine):
+    home = plan_engine._home
     (home / 'context' / 'vision.md').write_text('Our vision statement.')
     (home / 'context' / 'roadmap.md').write_text('Q1 goals.')
 
-    result = load_context(home)
+    result = plan_engine._load_context()
 
     assert result == {'vision': 'Our vision statement.', 'roadmap': 'Q1 goals.'}
 
 
-def test_load_context_skips_missing_files(tmp_path):
-    home = _setup_instance(tmp_path)
+def test_load_context_skips_missing_files(plan_engine):
+    home = plan_engine._home
     (home / 'context' / 'vision.md').write_text('Vision only.')
 
-    result = load_context(home)
+    result = plan_engine._load_context()
 
     assert result == {'vision': 'Vision only.'}
 
 
-def test_load_context_skips_empty_files(tmp_path):
-    home = _setup_instance(tmp_path)
+def test_load_context_skips_empty_files(plan_engine):
+    home = plan_engine._home
     (home / 'context' / 'vision.md').write_text('')
     (home / 'context' / 'roadmap.md').write_text('  ')
 
-    result = load_context(home)
+    result = plan_engine._load_context()
 
     assert result == {}
 
 
 def test_load_context_no_context_dir(tmp_path):
-    result = load_context(tmp_path)
+    home = setup_instance(tmp_path)
+    # Remove the context dir that setup_instance creates
+    (home / 'context').rmdir()
+    provider = LocalProvider(home)
+    engine = PlanEngine(home, provider)
+
+    result = engine._load_context()
 
     assert result == {}
+    provider.close()
 
 
-# --- find_similar_plans ---
+# --- _find_similar_plans ---
 
 
-def test_find_similar_plans_matches_by_keyword_overlap(tmp_path):
-    home = _setup_instance(tmp_path)
+def test_find_similar_plans_matches_by_keyword_overlap(plan_engine):
     plan = Plan(
         plan_id='aaa11111',
         instruction='close all security bugs',
@@ -102,16 +67,15 @@ def test_find_similar_plans_matches_by_keyword_overlap(tmp_path):
         created_at='2026-01-01T00:00:00Z',
         status=PlanStatus.SAVED,
     )
-    save_plan(plan, home)
+    plan_engine.save_plan(plan)
 
-    result = find_similar_plans(home, 'close security tickets')
+    result = plan_engine._find_similar_plans('close security tickets')
 
     assert len(result) == 1
     assert result[0].plan_id == 'aaa11111'
 
 
-def test_find_similar_plans_returns_empty_for_no_overlap(tmp_path):
-    home = _setup_instance(tmp_path)
+def test_find_similar_plans_returns_empty_for_no_overlap(plan_engine):
     plan = Plan(
         plan_id='bbb22222',
         instruction='deploy infrastructure',
@@ -120,15 +84,14 @@ def test_find_similar_plans_returns_empty_for_no_overlap(tmp_path):
         created_at='2026-01-01T00:00:00Z',
         status=PlanStatus.SAVED,
     )
-    save_plan(plan, home)
+    plan_engine.save_plan(plan)
 
-    result = find_similar_plans(home, 'close all bugs')
+    result = plan_engine._find_similar_plans('close all bugs')
 
     assert result == []
 
 
-def test_find_similar_plans_respects_limit(tmp_path):
-    home = _setup_instance(tmp_path)
+def test_find_similar_plans_respects_limit(plan_engine):
     for i in range(5):
         plan = Plan(
             plan_id=f'plan{i:04d}',
@@ -138,15 +101,15 @@ def test_find_similar_plans_respects_limit(tmp_path):
             created_at='2026-01-01T00:00:00Z',
             status=PlanStatus.SAVED,
         )
-        save_plan(plan, home)
+        plan_engine.save_plan(plan)
 
-    result = find_similar_plans(home, 'close bug', limit=2)
+    result = plan_engine._find_similar_plans('close bug', limit=2)
 
     assert len(result) == 2
 
 
-def test_find_similar_plans_rebuilds_index_when_missing(tmp_path):
-    home = _setup_instance(tmp_path)
+def test_find_similar_plans_rebuilds_index_when_missing(plan_engine):
+    home = plan_engine._home
     plan = Plan(
         plan_id='ccc33333',
         instruction='close all bugs',
@@ -159,16 +122,16 @@ def test_find_similar_plans_rebuilds_index_when_missing(tmp_path):
     plan_path = home / 'artifacts' / 'plans' / 'plan-ccc33333.json'
     plan_path.write_text(json.dumps(plan.to_dict(), indent=2))
 
-    result = find_similar_plans(home, 'close bugs')
+    result = plan_engine._find_similar_plans('close bugs')
 
     assert len(result) == 1
     assert result[0].plan_id == 'ccc33333'
     # Verify index was rebuilt
-    assert (home / 'artifacts' / 'plans' / PLAN_INDEX_FILENAME).exists()
+    assert (home / 'artifacts' / 'plans' / PlanEngine.PLAN_INDEX_FILENAME).exists()
 
 
-def test_find_similar_plans_skips_malformed_index_entries(tmp_path):
-    home = _setup_instance(tmp_path)
+def test_find_similar_plans_skips_malformed_index_entries(plan_engine):
+    home = plan_engine._home
     plan = Plan(
         plan_id='ddd44444',
         instruction='close bugs',
@@ -177,177 +140,176 @@ def test_find_similar_plans_skips_malformed_index_entries(tmp_path):
         created_at='2026-01-01T00:00:00Z',
         status=PlanStatus.SAVED,
     )
-    save_plan(plan, home)
+    plan_engine.save_plan(plan)
     # Append a malformed line to the index
-    index_path = home / 'artifacts' / 'plans' / PLAN_INDEX_FILENAME
+    index_path = home / 'artifacts' / 'plans' / PlanEngine.PLAN_INDEX_FILENAME
     with open(index_path, 'a') as f:
         f.write('not valid json\n')
 
-    result = find_similar_plans(home, 'close bugs')
+    result = plan_engine._find_similar_plans('close bugs')
 
     assert len(result) == 1
 
 
-# --- generate_plan_fallback ---
+# --- _generate_fallback ---
 
 
-def test_fallback_generates_status_operations(tmp_path):
-    home = _setup_instance(tmp_path)
-    ticket = _make_ticket(ticket_id='T-1', status='open')
-    _write_ticket(home, ticket)
-    provider = LocalProvider(home)
+def test_fallback_generates_status_operations(plan_engine):
+    ticket = make_ticket(ticket_id='T-1', status='open')
+    write_ticket(plan_engine._home, ticket)
 
-    plan = generate_plan_fallback('close all tickets', provider)
+    plan = plan_engine._generate_fallback('close all tickets')
 
     assert plan.status == PlanStatus.SAVED
     assert len(plan.operations) == 1
     assert plan.operations[0].field == 'status'
     assert plan.operations[0].after_value == 'done'
     assert plan.operations[0].before_value == 'open'
-    provider.close()
 
 
-def test_fallback_generates_priority_operations(tmp_path):
-    home = _setup_instance(tmp_path)
-    ticket = _make_ticket(ticket_id='T-2', priority='low')
-    _write_ticket(home, ticket)
-    provider = LocalProvider(home)
+def test_fallback_generates_priority_operations(plan_engine):
+    ticket = make_ticket(ticket_id='T-2', priority='low')
+    write_ticket(plan_engine._home, ticket)
 
-    plan = generate_plan_fallback('prioritize these tickets', provider)
+    plan = plan_engine._generate_fallback('prioritize these tickets')
 
     assert len(plan.operations) == 1
     assert plan.operations[0].field == 'priority'
     assert plan.operations[0].after_value == 'high'
-    provider.close()
 
 
-def test_fallback_skips_tickets_already_in_target_state(tmp_path):
-    home = _setup_instance(tmp_path)
-    ticket = _make_ticket(ticket_id='T-3', status='done')
-    _write_ticket(home, ticket)
-    provider = LocalProvider(home)
+def test_fallback_skips_tickets_already_in_target_state(plan_engine):
+    ticket = make_ticket(ticket_id='T-3', status='done')
+    write_ticket(plan_engine._home, ticket)
 
-    plan = generate_plan_fallback('close everything', provider)
+    plan = plan_engine._generate_fallback('close everything')
 
     assert plan.operations == []
-    provider.close()
 
 
-def test_fallback_filters_by_label_keywords(tmp_path):
-    home = _setup_instance(tmp_path)
-    t1 = _make_ticket(ticket_id='T-1', status='open', labels=['security'])
-    t2 = _make_ticket(ticket_id='T-2', status='open', labels=['docs'])
-    _write_ticket(home, t1)
-    _write_ticket(home, t2)
-    provider = LocalProvider(home)
+def test_fallback_filters_by_label_keywords(plan_engine):
+    t1 = make_ticket(ticket_id='T-1', status='open', labels=['security'])
+    t2 = make_ticket(ticket_id='T-2', status='open', labels=['docs'])
+    write_ticket(plan_engine._home, t1)
+    write_ticket(plan_engine._home, t2)
 
-    plan = generate_plan_fallback('close security tickets', provider)
+    plan = plan_engine._generate_fallback('close security tickets')
 
     ticket_ids = [op.ticket_id for op in plan.operations]
 
     assert 'T-1' in ticket_ids
     assert 'T-2' not in ticket_ids
-    provider.close()
 
 
-def test_fallback_no_matching_keywords(tmp_path):
-    home = _setup_instance(tmp_path)
-    ticket = _make_ticket(ticket_id='T-1', status='open')
-    _write_ticket(home, ticket)
-    provider = LocalProvider(home)
+def test_fallback_no_matching_keywords(plan_engine):
+    ticket = make_ticket(ticket_id='T-1', status='open')
+    write_ticket(plan_engine._home, ticket)
 
-    plan = generate_plan_fallback('do something vague', provider)
+    plan = plan_engine._generate_fallback('do something vague')
 
     assert plan.operations == []
     assert 'without LLM' in plan.risks[0]
-    provider.close()
 
 
-def test_fallback_includes_no_llm_risk(tmp_path):
-    home = _setup_instance(tmp_path)
-    provider = LocalProvider(home)
-
-    plan = generate_plan_fallback('close things', provider)
+def test_fallback_includes_no_llm_risk(plan_engine):
+    plan = plan_engine._generate_fallback('close things')
 
     assert any('without LLM' in r for r in plan.risks)
-    provider.close()
 
 
-# --- run_preflight ---
+# --- validate_operations ---
 
 
-def test_preflight_valid_operations(tmp_path):
-    home = _setup_instance(tmp_path)
-    ticket = _make_ticket(ticket_id='T-1', status='open')
-    _write_ticket(home, ticket)
-    provider = LocalProvider(home)
+def test_validate_operations_valid(plan_engine):
+    ticket = make_ticket(ticket_id='T-1', status='open')
+    write_ticket(plan_engine._home, ticket)
     op = Operation('T-1', 'status', 'wrong_before', 'done', 'closing')
 
-    errors = run_preflight([op], provider)
+    errors = plan_engine._provider.validate_operations([op])
 
     assert errors == []
-    assert op.before_value == 'open'  # overwritten with actual value
-    provider.close()
+    assert op.before_value == 'wrong_before'  # NOT overwritten
 
 
-def test_preflight_ticket_not_found(tmp_path):
-    home = _setup_instance(tmp_path)
-    provider = LocalProvider(home)
+def test_validate_operations_ticket_not_found(plan_engine):
     op = Operation('MISSING-1', 'status', 'open', 'done', 'closing')
 
-    errors = run_preflight([op], provider)
+    errors = plan_engine._provider.validate_operations([op])
 
     assert len(errors) == 1
     assert 'Ticket not found' in errors[0]
-    provider.close()
 
 
-def test_preflight_unsupported_field(tmp_path):
-    home = _setup_instance(tmp_path)
-    ticket = _make_ticket(ticket_id='T-1')
-    _write_ticket(home, ticket)
-    provider = LocalProvider(home)
+def test_validate_operations_unsupported_field(plan_engine):
+    ticket = make_ticket(ticket_id='T-1')
+    write_ticket(plan_engine._home, ticket)
     op = Operation('T-1', 'nonexistent_field', None, 'val', 'test')
 
-    errors = run_preflight([op], provider)
+    errors = plan_engine._provider.validate_operations([op])
 
     assert len(errors) == 1
     assert 'does not support updating field' in errors[0]
-    provider.close()
 
 
-def test_preflight_protected_field(tmp_path):
-    home = _setup_instance(tmp_path)
-    ticket = _make_ticket(ticket_id='T-1')
-    _write_ticket(home, ticket)
-    provider = LocalProvider(home)
-    op = Operation('T-1', 'id', 'T-1', 'T-999', 'rename')
+# --- _run_preflight ---
 
-    errors = run_preflight([op], provider)
+
+def test_preflight_valid_operations(plan_engine):
+    ticket = make_ticket(ticket_id='T-1', status='open')
+    write_ticket(plan_engine._home, ticket)
+    op = Operation('T-1', 'status', 'wrong_before', 'done', 'closing')
+
+    errors = plan_engine._run_preflight([op])
+
+    assert errors == []
+    assert op.before_value == 'open'  # overwritten with actual value
+
+
+def test_preflight_ticket_not_found(plan_engine):
+    op = Operation('MISSING-1', 'status', 'open', 'done', 'closing')
+
+    errors = plan_engine._run_preflight([op])
 
     assert len(errors) == 1
-    provider.close()
+    assert 'Ticket not found' in errors[0]
 
 
-def test_preflight_multiple_errors(tmp_path):
-    home = _setup_instance(tmp_path)
-    provider = LocalProvider(home)
+def test_preflight_unsupported_field(plan_engine):
+    ticket = make_ticket(ticket_id='T-1')
+    write_ticket(plan_engine._home, ticket)
+    op = Operation('T-1', 'nonexistent_field', None, 'val', 'test')
+
+    errors = plan_engine._run_preflight([op])
+
+    assert len(errors) == 1
+    assert 'does not support updating field' in errors[0]
+
+
+def test_preflight_protected_field(plan_engine):
+    ticket = make_ticket(ticket_id='T-1')
+    write_ticket(plan_engine._home, ticket)
+    op = Operation('T-1', 'id', 'T-1', 'T-999', 'rename')
+
+    errors = plan_engine._run_preflight([op])
+
+    assert len(errors) == 1
+
+
+def test_preflight_multiple_errors(plan_engine):
     ops = [
         Operation('MISSING', 'status', 'open', 'done', 'close'),
         Operation('ALSO-MISSING', 'status', 'open', 'done', 'close'),
     ]
 
-    errors = run_preflight(ops, provider)
+    errors = plan_engine._run_preflight(ops)
 
     assert len(errors) == 2
-    provider.close()
 
 
 # --- save_plan / load_plan ---
 
 
-def test_save_and_load_plan(tmp_path):
-    home = _setup_instance(tmp_path)
+def test_save_and_load_plan(plan_engine):
     plan = Plan(
         plan_id='abcd1234',
         instruction='close bugs',
@@ -359,12 +321,12 @@ def test_save_and_load_plan(tmp_path):
         status=PlanStatus.SAVED,
     )
 
-    path = save_plan(plan, home)
+    path = plan_engine.save_plan(plan)
 
     assert path.exists()
     assert path.name == 'plan-abcd1234.json'
 
-    loaded = load_plan('abcd1234', home)
+    loaded = plan_engine.load_plan('abcd1234')
 
     assert loaded.plan_id == plan.plan_id
     assert loaded.instruction == plan.instruction
@@ -373,15 +335,12 @@ def test_save_and_load_plan(tmp_path):
     assert loaded.status == PlanStatus.SAVED
 
 
-def test_load_plan_not_found(tmp_path):
-    home = _setup_instance(tmp_path)
-
+def test_load_plan_not_found(plan_engine):
     with pytest.raises(FileNotFoundError, match='Plan not found'):
-        load_plan('nonexistent', home)
+        plan_engine.load_plan('nonexistent')
 
 
-def test_save_plan_with_parent_plan_id(tmp_path):
-    home = _setup_instance(tmp_path)
+def test_save_plan_with_parent_plan_id(plan_engine):
     plan = Plan(
         plan_id='child123',
         instruction='re-close bugs',
@@ -392,8 +351,8 @@ def test_save_plan_with_parent_plan_id(tmp_path):
         parent_plan_id='parent99',
     )
 
-    save_plan(plan, home)
-    loaded = load_plan('child123', home)
+    plan_engine.save_plan(plan)
+    loaded = plan_engine.load_plan('child123')
 
     assert loaded.parent_plan_id == 'parent99'
 
@@ -402,10 +361,10 @@ def test_save_plan_with_parent_plan_id(tmp_path):
 
 
 def test_plan_response_schema_is_valid():
-    assert PLAN_RESPONSE_SCHEMA['type'] == 'object'
-    assert 'operations' in PLAN_RESPONSE_SCHEMA['properties']
-    assert 'risks' in PLAN_RESPONSE_SCHEMA['properties']
-    assert set(PLAN_RESPONSE_SCHEMA['required']) == {'operations', 'risks'}
+    assert PlanEngine.PLAN_RESPONSE_SCHEMA['type'] == 'object'
+    assert 'operations' in PlanEngine.PLAN_RESPONSE_SCHEMA['properties']
+    assert 'risks' in PlanEngine.PLAN_RESPONSE_SCHEMA['properties']
+    assert set(PlanEngine.PLAN_RESPONSE_SCHEMA['required']) == {'operations', 'risks'}
 
 
 # --- generate_plan (async) ---
@@ -427,10 +386,9 @@ def _make_mock_llm(response_json):
 
 
 @pytest.mark.asyncio
-async def test_generate_plan_llm_path(tmp_path):
-    home = _setup_instance(tmp_path)
-    ticket = _make_ticket(ticket_id='T-1', status='open')
-    _write_ticket(home, ticket)
+async def test_generate_plan_llm_path(plan_engine):
+    ticket = make_ticket(ticket_id='T-1', status='open')
+    write_ticket(plan_engine._home, ticket)
 
     response_json = {
         'operations': [
@@ -446,22 +404,23 @@ async def test_generate_plan_llm_path(tmp_path):
     }
     mock_llm = _make_mock_llm(response_json)
 
-    with patch('oppie.plan.engine.create_llm_provider', return_value=mock_llm):
-        plan = await generate_plan('close T-1', home)
+    with patch('oppie.models.plan_engine.create_llm_provider', return_value=mock_llm):
+        plan = await plan_engine.generate('close T-1')
 
     assert plan.status == PlanStatus.SAVED
     assert len(plan.operations) == 1
     assert plan.operations[0].ticket_id == 'T-1'
     assert plan.operations[0].after_value == 'done'
     assert 'Ticket may not be ready to close' in plan.risks
+    assert plan.ticket_snapshots is not None
+    assert 'T-1' in plan.ticket_snapshots
     # Verify plan was saved
-    loaded = load_plan(plan.plan_id, home)
+    loaded = plan_engine.load_plan(plan.plan_id)
     assert loaded.plan_id == plan.plan_id
 
 
 @pytest.mark.asyncio
-async def test_generate_plan_llm_no_structured_output(tmp_path):
-    home = _setup_instance(tmp_path)
+async def test_generate_plan_llm_no_structured_output(plan_engine):
     mock_llm = _make_mock_llm(None)
     mock_llm.generate = AsyncMock(
         return_value=LLMResponse(
@@ -472,31 +431,31 @@ async def test_generate_plan_llm_no_structured_output(tmp_path):
     )
 
     with (
-        patch('oppie.plan.engine.create_llm_provider', return_value=mock_llm),
+        patch('oppie.models.plan_engine.create_llm_provider', return_value=mock_llm),
         pytest.raises(ValueError, match='LLM returned no structured output'),
     ):
-        await generate_plan('do something', home)
+        await plan_engine.generate('do something')
 
 
 @pytest.mark.asyncio
-async def test_generate_plan_fallback_path(tmp_path):
-    home = _setup_instance(tmp_path)
-    ticket = _make_ticket(ticket_id='T-1', status='open')
-    _write_ticket(home, ticket)
+async def test_generate_plan_fallback_path(plan_engine):
+    ticket = make_ticket(ticket_id='T-1', status='open')
+    write_ticket(plan_engine._home, ticket)
 
-    # No config → LLMNotConfiguredError → fallback
-    plan = await generate_plan('close all tickets', home)
+    # No config -> LLMNotConfiguredError -> fallback
+    plan = await plan_engine.generate('close all tickets')
 
     assert plan.status == PlanStatus.SAVED
     assert any('without LLM' in r for r in plan.risks)
     assert len(plan.operations) == 1
     assert plan.operations[0].field == 'status'
     assert plan.operations[0].after_value == 'done'
+    assert plan.ticket_snapshots is not None
+    assert 'T-1' in plan.ticket_snapshots
 
 
 @pytest.mark.asyncio
-async def test_generate_plan_llm_with_preflight_errors(tmp_path):
-    home = _setup_instance(tmp_path)
+async def test_generate_plan_llm_with_preflight_errors(plan_engine):
     # No tickets exist, so operations referencing T-MISSING will fail preflight
     response_json = {
         'operations': [
@@ -512,37 +471,34 @@ async def test_generate_plan_llm_with_preflight_errors(tmp_path):
     }
     mock_llm = _make_mock_llm(response_json)
 
-    with patch('oppie.plan.engine.create_llm_provider', return_value=mock_llm):
-        plan = await generate_plan('close T-MISSING', home)
+    with patch('oppie.models.plan_engine.create_llm_provider', return_value=mock_llm):
+        plan = await plan_engine.generate('close T-MISSING')
 
     assert plan.status == PlanStatus.INVALID
     assert any('Ticket not found' in r for r in plan.risks)
 
 
-# --- amend_plan (async) ---
+# --- amend (async) ---
 
 
 @pytest.mark.asyncio
-async def test_amend_plan_links_parent(tmp_path):
-    home = _setup_instance(tmp_path)
-    ticket = _make_ticket(ticket_id='T-1', status='open')
-    _write_ticket(home, ticket)
+async def test_amend_links_parent(plan_engine):
+    ticket = make_ticket(ticket_id='T-1', status='open')
+    write_ticket(plan_engine._home, ticket)
 
     # Create original plan via fallback
-    original = await generate_plan('close all tickets', home)
+    original = await plan_engine.generate('close all tickets')
 
     # Amend it (also via fallback since no config)
-    amended = await amend_plan(original.plan_id, home)
+    amended = await plan_engine.amend(original.plan_id)
 
     assert amended.parent_plan_id == original.plan_id
     # Amended plan was saved
-    loaded = load_plan(amended.plan_id, home)
+    loaded = plan_engine.load_plan(amended.plan_id)
     assert loaded.parent_plan_id == original.plan_id
 
 
 @pytest.mark.asyncio
-async def test_amend_plan_not_found(tmp_path):
-    home = _setup_instance(tmp_path)
-
+async def test_amend_not_found(plan_engine):
     with pytest.raises(FileNotFoundError, match='Plan not found'):
-        await amend_plan('nonexistent', home)
+        await plan_engine.amend('nonexistent')

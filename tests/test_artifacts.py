@@ -22,7 +22,7 @@ def test_save_and_read_artifact(tmp_path):
     assert path.parent == tmp_path / 'artifacts' / 'ask'
     assert 'ask-' in path.name
     assert run_id in path.name
-    assert path.suffix == '.md'
+    assert path.suffix == '.json'
     assert store.read_artifact(path) == content
 
 
@@ -66,7 +66,7 @@ def test_read_artifact_missing_file(tmp_path):
     store = ArtifactStore(tmp_path)
 
     with pytest.raises(FileNotFoundError):
-        store.read_artifact(tmp_path / 'nonexistent.md')
+        store.read_artifact(tmp_path / 'nonexistent.json')
 
 
 def test_save_artifact_creates_subdir(tmp_path):
@@ -85,8 +85,8 @@ def test_artifact_filename_format(tmp_path):
 
     path = store.save_artifact(ArtifactType.ASK, 'content', run_id)
 
-    # Pattern: {type}-{YYYYMMDDTHHMMSS}-{run_id}.md
-    assert re.match(r'ask-\d{8}T\d{6}-test-run-id\.md', path.name)
+    # Pattern: {type}-{YYYYMMDDTHHMMSS}-{run_id}.json
+    assert re.match(r'ask-\d{8}T\d{6}-test-run-id\.json', path.name)
 
 
 def test_type_dirs_covers_all_artifact_types():

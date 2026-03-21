@@ -54,14 +54,14 @@ Allowed types: `feat`, `fix`, `ci`, `chore`, `docs`, `refactor`, `test`
 
 ## Project structure
 
-- `oppie/models/` — Core data models (Ticket, Plan, Operation, Apply, etc.). Each in its own file.
-- `oppie/providers/` — Storage backends. `base.py` defines the `TicketProvider` ABC; `local.py` implements JSON-file-per-ticket storage with SQLite indexing.
+- `oppie/models/` — Core data models (Ticket, Plan, Operation, Apply, Drift, etc.). Each in its own file.
+- `oppie/providers/` — Storage backends. `base.py` defines `TicketProvider` ABC (with `read_ticket`, `update_ticket`, `list_tickets`, `capabilities`, and concrete `validate_operations`) and `ExternalProvider` (adds `sync`/`apply`). `local.py` implements `LocalProvider` with JSON-file-per-ticket storage and SQLite indexing.
 - `oppie/config.py` — YAML config loading, `OppieConfig` and `InstanceType` (local/remote).
 - `oppie/instance.py` — Instance initialization and discovery. Creates the directory tree under a home dir with a `.oppie-marker` file.
-- `oppie/artifacts.py` — `ArtifactStore` for saving/reading/listing markdown artifacts (ask, plan, apply, report, context) under `artifacts/`.
+- `oppie/artifacts.py` — `ArtifactStore` for saving/reading/listing JSON artifacts (ask, plan, apply, report, context) under `artifacts/`.
 - `oppie/run_log.py` — `RunLog` for append-only JSONL run logging under `logs/runs.jsonl`.
-- `oppie/plan/` — Plan generation package. `engine.py` has async entry points (`generate_plan`, `amend_plan`). `fallback.py` has keyword matching. `preflight.py` validates operations. `persistence.py` handles save/load and JSONL index. `schema.py` has `PLAN_RESPONSE_SCHEMA`, `load_context`, `find_similar_plans`. `__init__.py` re-exports all public names. Accepts `home: Path` + `config: OppieConfig | None` (not `Instance`) to avoid circular imports.
-- `oppie/prompts/plan.py` — LLM prompt construction for plan generation. `build_plan_prompt()` returns OpenAI-format messages.
+- `oppie/models/plan_engine.py` — `PlanEngine` class: the full plan lifecycle engine. Created via `Plan.engine(home, provider, config)`. Public methods: `generate()` (async), `amend()` (async), `check_apply()`, `execute_apply()`, `save_plan()`, `load_plan()`. Private methods handle fallback generation, drift detection, preflight validation, prompt building, plan indexing, context loading, and similar-plan search. `PreApplyCheck` dataclass also lives here.
+- `oppie/plan/` — Thin re-export package. `__init__.py` re-exports `PlanEngine` and `PreApplyCheck` from `oppie.models.plan_engine`.
 - `oppie/llm/` — LLM provider abstraction. `base.py` defines the `LLMProvider` ABC, `TokenUsage`, `LLMResponse`, `StreamResult` dataclasses, and `LLMNotConfiguredError`. `openai_compatible.py` and `anthropic.py` are the two backends. `_sse.py` is a shared SSE parser. `__init__.py` exports types and `create_llm_provider()` factory.
 - `oppie/session.py` — `Session` for per-session state (`state/session-{uuid}.json`). Tracks active plan, recent run IDs, last command timestamp. Supports multiple concurrent sessions via UUID-keyed files.
 
@@ -82,7 +82,7 @@ Allowed types: `feat`, `fix`, `ci`, `chore`, `docs`, `refactor`, `test`
 
 ## Async conventions
 
-- `oppie/llm/` and `oppie/plan_engine.py` are async. All `LLMProvider` methods are async.
+- `oppie/llm/` and `PlanEngine.generate()`/`amend()` are async. All `LLMProvider` methods are async. `PlanEngine.check_apply()`/`execute_apply()` and drift detection are synchronous.
 - Textual (TUI) callers can `await` directly since Textual runs on asyncio.
 - Non-TUI callers (CLI commands without TUI) wrap with `asyncio.run()`.
 - Both LLM providers implement async context manager protocol (`async with provider:`) for proper httpx client cleanup.
