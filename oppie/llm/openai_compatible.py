@@ -1,8 +1,16 @@
+from __future__ import annotations
+
 import json
 import os
-from collections.abc import AsyncIterator
+from typing import TYPE_CHECKING
 
-import httpx
+try:
+    import httpx
+except ImportError:
+    httpx = None  # type: ignore[assignment]
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
 
 from oppie.llm._sse import parse_sse_events
 from oppie.llm.base import LLMProvider, LLMResponse, StreamResult, TokenUsage
@@ -17,6 +25,11 @@ class OpenAICompatibleProvider(LLMProvider):
         endpoint: str = 'http://localhost:8080/v1',
         timeout: float = 120.0,
     ) -> None:
+        if httpx is None:
+            raise ImportError(
+                'LLM backend requires the llm extra. '
+                'Install with: pip install oppie[llm]'
+            )
         self._model = model
         self._endpoint = endpoint.rstrip('/')
         self._timeout = timeout

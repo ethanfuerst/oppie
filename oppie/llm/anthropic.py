@@ -1,9 +1,16 @@
+from __future__ import annotations
+
 import json
 import os
-from collections.abc import AsyncIterator
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import httpx
+try:
+    import httpx
+except ImportError:
+    httpx = None  # type: ignore[assignment]
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
 
 from oppie.llm.base import LLMProvider, LLMResponse, StreamResult, TokenUsage
 
@@ -20,6 +27,11 @@ class AnthropicProvider(LLMProvider):
         endpoint: str | None = None,
         timeout: float = 120.0,
     ) -> None:
+        if httpx is None:
+            raise ImportError(
+                'LLM backend requires the llm extra. '
+                'Install with: pip install oppie[llm]'
+            )
         self._model = model
         api_key = os.environ.get('ANTHROPIC_API_KEY', '')
         base_url = endpoint or _ANTHROPIC_API_URL

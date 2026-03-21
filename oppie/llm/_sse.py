@@ -1,8 +1,15 @@
-import json
-from collections.abc import AsyncIterator
-from typing import Any
+from __future__ import annotations
 
-import httpx
+import json
+from typing import TYPE_CHECKING, Any
+
+try:
+    import httpx
+except ImportError:
+    httpx = None  # type: ignore[assignment]
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
 
 
 async def parse_sse_events(response: httpx.Response) -> AsyncIterator[dict[str, Any]]:
