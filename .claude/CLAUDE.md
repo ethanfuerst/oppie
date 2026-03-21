@@ -16,6 +16,13 @@
 | Python version | 3.12+ | Minimum supported version |
 | Package manager | uv | Fast, modern, good lockfile support |
 
+## Optional dependencies (extras)
+
+- `httpx` and `textual` are **not** core deps — they live in `[project.optional-dependencies]`.
+- Extras: `llm` (httpx), `tui` (textual), `all` (both).
+- `create_llm_provider()` in `oppie/llm/__init__.py` catches `ImportError` and raises `LLMNotConfiguredError` with an install hint when httpx is missing.
+- CI jobs that need httpx/textual use `uv sync --frozen --all-extras`. The `core-import-check` CI job validates that `import oppie` works without extras.
+
 ## Commit style
 
 Conventional commits enforced in CI. Format: `type: description`
