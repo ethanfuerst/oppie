@@ -38,6 +38,11 @@ Allowed types: `feat`, `fix`, `ci`, `chore`, `docs`, `refactor`, `test`
 - Test: `uv run pytest`
 - Pre-commit: `uv run pre-commit run --all-files`
 
+## Import conventions
+
+- Import model classes from their submodule, not from `oppie.models` (e.g., `from oppie.models.ticket import Ticket`, not `from oppie.models import Ticket`).
+- `oppie/models/__init__.py` only exports `SCHEMA_VERSION` and type aliases (`RunId`, `PlanId`).
+
 ## Code style
 
 - Single quotes for strings.
