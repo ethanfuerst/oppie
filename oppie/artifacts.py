@@ -56,6 +56,16 @@ class ArtifactStore:
 
         return target
 
+    def list_artifacts(self, artifact_type: ArtifactType) -> list[Path]:
+        """List artifact files for the given type, sorted by modification time (newest first).
+
+        Returns paths to all files in the artifact type's subdirectory.
+        """
+        subdir = self._artifacts_dir / _TYPE_DIRS[artifact_type]
+        if not subdir.exists():
+            return []
+        return sorted(subdir.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True)
+
     def read_artifact(self, path: Path) -> str:
         """Read and return the content of an artifact file."""
         if not path.exists():

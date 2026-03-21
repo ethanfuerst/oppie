@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
+from oppie.models.operation import Operation
 from oppie.models.ticket import Ticket, TicketMetadata, TicketSource
 from oppie.providers.local import LocalProvider, TicketFilter
 
@@ -352,3 +353,38 @@ def test_sqlite_index_stays_in_sync(tmp_path):
     provider.delete_ticket('SYNC-1')
     assert provider.list_tickets(TicketFilter(status='done')) == []
     assert provider.list_tickets(TicketFilter(labels=['bug'])) == []
+
+
+# --- capabilities ---
+
+
+def test_local_provider_capabilities_supports_write(tmp_path):
+    provider = make_provider(tmp_path)
+
+    caps = provider.capabilities
+
+    assert caps.supports_write is True
+    assert caps.supports_create is True
+    assert 'status' in caps.supported_field_updates
+    assert 'priority' in caps.supported_field_updates
+    assert 'id' not in caps.supported_field_updates
+    assert 'metadata' not in caps.supported_field_updates
+
+
+def test_local_provider_capabilities_validates_operations(tmp_path):
+    provider = make_provider(tmp_path)
+    op = Operation('T-1', 'status', 'open', 'done', 'test')
+
+    result = provider.capabilities.validate_operation(op)
+
+    assert result is None
+
+
+def test_local_provider_capabilities_rejects_unsupported_field(tmp_path):
+    provider = make_provider(tmp_path)
+    op = Operation('T-1', 'fake_field', None, 'val', 'test')
+
+    result = provider.capabilities.validate_operation(op)
+
+    assert result is not None
+    assert 'fake_field' in result
