@@ -63,3 +63,4 @@ update_changelog_on_bump = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "--cov=oppie --cov-report=term-missing"
