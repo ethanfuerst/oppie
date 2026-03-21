@@ -26,32 +26,25 @@ def create_llm_provider(
     if not isinstance(config, LLMConfig):
         raise LLMNotConfiguredError('LLM is not configured')
 
-    if config.backend == LLMBackend.OPENAI_COMPATIBLE:
-        try:
+    try:
+        if config.backend == LLMBackend.OPENAI_COMPATIBLE:
             from oppie.llm.openai_compatible import OpenAICompatibleProvider
-        except ImportError:
-            raise LLMNotConfiguredError(
-                'LLM backend requires httpx. Install with: pip install oppie[llm]'
-            ) from None
 
-        return OpenAICompatibleProvider(
-            model=config.model,
-            endpoint=config.endpoint or 'http://localhost:8080/v1',
-        )
-    elif config.backend == LLMBackend.ANTHROPIC:
-        try:
+            return OpenAICompatibleProvider(
+                model=config.model,
+                endpoint=config.endpoint or 'http://localhost:8080/v1',
+            )
+        elif config.backend == LLMBackend.ANTHROPIC:
             from oppie.llm.anthropic import AnthropicProvider
-        except ImportError:
-            raise LLMNotConfiguredError(
-                'LLM backend requires httpx. Install with: pip install oppie[llm]'
-            ) from None
 
-        return AnthropicProvider(
-            model=config.model,
-            endpoint=config.endpoint,
-        )
-    else:
-        raise ValueError(f'Unknown LLM backend: {config.backend}')
+            return AnthropicProvider(
+                model=config.model,
+                endpoint=config.endpoint,
+            )
+        else:
+            raise ValueError(f'Unknown LLM backend: {config.backend}')
+    except ImportError as exc:
+        raise LLMNotConfiguredError(str(exc)) from exc
 
 
 __all__ = [

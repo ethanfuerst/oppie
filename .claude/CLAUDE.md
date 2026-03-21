@@ -20,7 +20,7 @@
 
 - `httpx` and `textual` are **not** core deps — they live in `[project.optional-dependencies]`.
 - Extras: `llm` (httpx), `tui` (textual), `all` (both).
-- `create_llm_provider()` in `oppie/llm/__init__.py` catches `ImportError` and raises `LLMNotConfiguredError` with an install hint when httpx is missing.
+- LLM provider modules (`openai_compatible.py`, `anthropic.py`, `_sse.py`) use lazy imports: `try: import httpx / except ImportError: httpx = None` with `from __future__ import annotations` for deferred type evaluation. Provider constructors raise `ImportError` with install hint if httpx is missing. The factory (`create_llm_provider()`) wraps this into `LLMNotConfiguredError`.
 - CI jobs that need httpx/textual use `uv sync --frozen --all-extras`. The `core-import-check` CI job validates that `import oppie` works without extras.
 
 ## Commit style
