@@ -43,6 +43,7 @@ Allowed types: `feat`, `fix`, `ci`, `chore`, `docs`, `refactor`, `test`
 
 - Import model classes from their submodule, not from `oppie.models` (e.g., `from oppie.models.ticket import Ticket`, not `from oppie.models import Ticket`).
 - `oppie/models/__init__.py` only exports `SCHEMA_VERSION` and type aliases (`RunId`, `PlanId`, `SessionId`).
+- `oppie/llm/__init__.py` exports types (`LLMProvider`, `LLMResponse`, `TokenUsage`, `StreamResult`, `LLMNotConfiguredError`) and `create_llm_provider()`. Import from submodules for internal use (e.g., `from oppie.llm.base import TokenUsage`).
 
 ## Project structure
 
@@ -52,6 +53,7 @@ Allowed types: `feat`, `fix`, `ci`, `chore`, `docs`, `refactor`, `test`
 - `oppie/instance.py` — Instance initialization and discovery. Creates the directory tree under a home dir with a `.oppie-marker` file.
 - `oppie/artifacts.py` — `ArtifactStore` for saving/reading markdown artifacts (ask, plan, apply, report, context) under `artifacts/`.
 - `oppie/run_log.py` — `RunLog` for append-only JSONL run logging under `logs/runs.jsonl`.
+- `oppie/llm/` — LLM provider abstraction. `base.py` defines the `LLMProvider` ABC, `TokenUsage`, `LLMResponse`, `StreamResult` dataclasses, and `LLMNotConfiguredError`. `openai_compatible.py` and `anthropic.py` are the two backends. `_sse.py` is a shared SSE parser. `__init__.py` exports types and `create_llm_provider()` factory.
 - `oppie/session.py` — `Session` for per-session state (`state/session-{uuid}.json`). Tracks active plan, recent run IDs, last command timestamp. Supports multiple concurrent sessions via UUID-keyed files.
 
 ### Instance directory layout
@@ -66,6 +68,13 @@ Allowed types: `feat`, `fix`, `ci`, `chore`, `docs`, `refactor`, `test`
   state/session-*.json # Per-session state files (UUID-keyed)
   logs/runs.jsonl      # Append-only run log
 ```
+
+## Async conventions
+
+- `oppie/llm/` is the first async module in the codebase. All `LLMProvider` methods are async.
+- Textual (TUI) callers can `await` directly since Textual runs on asyncio.
+- Non-TUI callers (CLI commands without TUI) wrap with `asyncio.run()`.
+- Both LLM providers implement async context manager protocol (`async with provider:`) for proper httpx client cleanup.
 
 ## Code style
 
