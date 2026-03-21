@@ -1,9 +1,21 @@
+import builtins
+from unittest.mock import patch
+
 import pytest
 
 from oppie.config import LLMBackend, LLMConfig
 from oppie.llm import LLMNotConfiguredError, create_llm_provider
 from oppie.llm.anthropic import AnthropicProvider
 from oppie.llm.openai_compatible import OpenAICompatibleProvider
+
+_original_import = builtins.__import__
+
+
+def _fake_import(name, *args, **kwargs):
+    """Simulate httpx not being installed by failing on LLM provider imports."""
+    if 'openai_compatible' in name or 'oppie.llm.anthropic' in name:
+        raise ImportError(f'No module named {name}')
+    return _original_import(name, *args, **kwargs)
 
 
 def test_create_openai_compatible_provider():
@@ -28,3 +40,21 @@ def test_create_raises_not_configured_for_none():
 def test_create_raises_not_configured_for_non_config():
     with pytest.raises(LLMNotConfiguredError):
         create_llm_provider('invalid')
+
+
+def test_create_openai_raises_when_httpx_missing():
+    config = LLMConfig(backend=LLMBackend.OPENAI_COMPATIBLE, model='gpt-4')
+    with (
+        patch('builtins.__import__', side_effect=_fake_import),
+        pytest.raises(LLMNotConfiguredError, match='oppie\\[llm\\]'),
+    ):
+        create_llm_provider(config)
+
+
+def test_create_anthropic_raises_when_httpx_missing():
+    config = LLMConfig(backend=LLMBackend.ANTHROPIC, model='claude-3')
+    with (
+        patch('builtins.__import__', side_effect=_fake_import),
+        pytest.raises(LLMNotConfiguredError, match='oppie\\[llm\\]'),
+    ):
+        create_llm_provider(config)

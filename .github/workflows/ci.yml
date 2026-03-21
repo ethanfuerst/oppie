@@ -21,7 +21,7 @@ jobs:
 
       - uses: astral-sh/setup-uv@v4
 
-      - run: uv sync --frozen
+      - run: uv sync --frozen --all-extras
 
       - name: Check commit messages
         run: |
@@ -48,7 +48,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v4
-      - run: uv sync --frozen
+      - run: uv sync --frozen --all-extras
       - run: uv run mypy oppie/
 
   test:
@@ -56,5 +56,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v4
-      - run: uv sync --frozen
+      - run: uv sync --frozen --all-extras
       - run: uv run pytest
+
+  core-import-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+      - run: uv sync --frozen --no-dev
+      - run: uv run python -c 'import oppie'
