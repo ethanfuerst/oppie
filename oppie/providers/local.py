@@ -4,6 +4,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from oppie.models.capabilities import ProviderCapabilities
 from oppie.models.ticket import Ticket
 
 
@@ -19,12 +20,34 @@ class TicketFilter:
 class LocalProvider:
     """File-backed ticket storage with SQLite indexing."""
 
+    _UPDATABLE_FIELDS = [
+        'title',
+        'status',
+        'priority',
+        'owner',
+        'labels',
+        'created_at',
+        'updated_at',
+        'project',
+        'description',
+    ]
+
     def __init__(self, home: Path) -> None:
         self._home = home
         self._tickets_dir = home / 'tickets'
         self._db_path = home / 'state' / 'cache.sqlite'
         self._conn = self._open_db()
         self._ensure_schema()
+
+    @property
+    def capabilities(self) -> ProviderCapabilities:
+        """Return capabilities for the local provider."""
+        return ProviderCapabilities(
+            supports_sync=True,
+            supports_write=True,
+            supports_create=True,
+            supported_field_updates=list(self._UPDATABLE_FIELDS),
+        )
 
     def _open_db(self) -> sqlite3.Connection:
         conn = sqlite3.connect(str(self._db_path))

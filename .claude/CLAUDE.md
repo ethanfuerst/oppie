@@ -51,8 +51,10 @@ Allowed types: `feat`, `fix`, `ci`, `chore`, `docs`, `refactor`, `test`
 - `oppie/providers/` — Storage backends. `base.py` defines the `TicketProvider` ABC; `local.py` implements JSON-file-per-ticket storage with SQLite indexing.
 - `oppie/config.py` — YAML config loading, `OppieConfig` and `InstanceType` (local/remote).
 - `oppie/instance.py` — Instance initialization and discovery. Creates the directory tree under a home dir with a `.oppie-marker` file.
-- `oppie/artifacts.py` — `ArtifactStore` for saving/reading markdown artifacts (ask, plan, apply, report, context) under `artifacts/`.
+- `oppie/artifacts.py` — `ArtifactStore` for saving/reading/listing markdown artifacts (ask, plan, apply, report, context) under `artifacts/`.
 - `oppie/run_log.py` — `RunLog` for append-only JSONL run logging under `logs/runs.jsonl`.
+- `oppie/plan/` — Plan generation package. `engine.py` has async entry points (`generate_plan`, `amend_plan`). `fallback.py` has keyword matching. `preflight.py` validates operations. `persistence.py` handles save/load and JSONL index. `schema.py` has `PLAN_RESPONSE_SCHEMA`, `load_context`, `find_similar_plans`. `__init__.py` re-exports all public names. Accepts `home: Path` + `config: OppieConfig | None` (not `Instance`) to avoid circular imports.
+- `oppie/prompts/plan.py` — LLM prompt construction for plan generation. `build_plan_prompt()` returns OpenAI-format messages.
 - `oppie/llm/` — LLM provider abstraction. `base.py` defines the `LLMProvider` ABC, `TokenUsage`, `LLMResponse`, `StreamResult` dataclasses, and `LLMNotConfiguredError`. `openai_compatible.py` and `anthropic.py` are the two backends. `_sse.py` is a shared SSE parser. `__init__.py` exports types and `create_llm_provider()` factory.
 - `oppie/session.py` — `Session` for per-session state (`state/session-{uuid}.json`). Tracks active plan, recent run IDs, last command timestamp. Supports multiple concurrent sessions via UUID-keyed files.
 
@@ -67,11 +69,13 @@ Allowed types: `feat`, `fix`, `ci`, `chore`, `docs`, `refactor`, `test`
   artifacts/{ask,plans,applies,reports,context}/
   state/session-*.json # Per-session state files (UUID-keyed)
   logs/runs.jsonl      # Append-only run log
+  artifacts/plans/.plan-index.jsonl  # JSONL index for plan keyword search
+  context/{vision,roadmap,metrics,prioritization}.md  # Optional context docs
 ```
 
 ## Async conventions
 
-- `oppie/llm/` is the first async module in the codebase. All `LLMProvider` methods are async.
+- `oppie/llm/` and `oppie/plan_engine.py` are async. All `LLMProvider` methods are async.
 - Textual (TUI) callers can `await` directly since Textual runs on asyncio.
 - Non-TUI callers (CLI commands without TUI) wrap with `asyncio.run()`.
 - Both LLM providers implement async context manager protocol (`async with provider:`) for proper httpx client cleanup.
