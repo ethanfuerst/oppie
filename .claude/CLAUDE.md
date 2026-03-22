@@ -34,8 +34,10 @@ Allowed types: `feat`, `fix`, `ci`, `chore`, `docs`, `refactor`, `test`
 - Use pytest. Run with `uv run pytest`.
 - 100% coverage on touched files.
 - Use plain `test_*` functions, not `Test*` classes.
-- Organize test files by area (e.g., `tests/models/`, `tests/providers/`).
-- Shared fixtures go in `tests/conftest.py`.
+- Organize test files by area in subdirectories (e.g., `tests/models/`, `tests/providers/`, `tests/drift/`).
+- Each test subdirectory has `__init__.py` and optionally `conftest.py` for directory-scoped helpers/fixtures.
+- Root `tests/conftest.py` has cross-cutting fixtures (e.g., `plan_engine`). `tests/helpers.py` has shared helpers (`make_ticket`, `write_ticket`, `setup_instance`).
+- `tests/providers/conftest.py` has its own `make_ticket` (different signature from `tests/helpers.make_ticket`) and an autouse `_close_provider` fixture for `LocalProvider` cleanup.
 
 ## Development commands
 
