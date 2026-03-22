@@ -6,6 +6,7 @@ from pathlib import Path
 
 from oppie.models.capabilities import ProviderCapabilities
 from oppie.models.ticket import Ticket
+from oppie.providers.base import TicketProvider
 
 
 @dataclass
@@ -17,7 +18,7 @@ class TicketFilter:
     labels: list[str] | None = None
 
 
-class LocalProvider:
+class LocalProvider(TicketProvider):
     """File-backed ticket storage with SQLite indexing."""
 
     _UPDATABLE_FIELDS = [
@@ -218,3 +219,9 @@ class LocalProvider:
 
     def close(self) -> None:
         self._conn.close()
+
+    def __enter__(self) -> 'LocalProvider':
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()

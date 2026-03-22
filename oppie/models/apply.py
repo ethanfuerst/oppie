@@ -1,8 +1,10 @@
 import dataclasses
+import json
 from dataclasses import dataclass
 from enum import Enum
 
 from oppie.models.operation import Operation
+from oppie.models.plan import Plan
 
 
 class OperationStatus(Enum):
@@ -33,22 +35,31 @@ class OperationResult:
 @dataclass
 class ApplyResult:
     apply_id: str
-    plan_id: str
+    plan: Plan
     results: list[OperationResult]
     duration: float
     created_at: str
 
+    @property
+    def plan_id(self) -> str:
+        return self.plan.plan_id
+
     def to_dict(self) -> dict:
         return {
             'apply_id': self.apply_id,
-            'plan_id': self.plan_id,
+            'plan': self.plan.to_dict(),
             'results': [r.to_dict() for r in self.results],
             'duration': self.duration,
             'created_at': self.created_at,
         }
 
+    def build_artifact(self) -> str:
+        """Build JSON content for the apply artifact."""
+        return json.dumps(self.to_dict(), indent=2)
+
     @classmethod
     def from_dict(cls, data: dict) -> 'ApplyResult':
         data = dict(data)
+        data['plan'] = Plan.from_dict(data['plan'])
         data['results'] = [OperationResult.from_dict(r) for r in data['results']]
         return cls(**data)

@@ -42,7 +42,7 @@ class ArtifactStore:
         subdir.mkdir(parents=True, exist_ok=True)
 
         timestamp = datetime.now(UTC).strftime('%Y%m%dT%H%M%S')
-        filename = f'{artifact_type.value}-{timestamp}-{run_id}.md'
+        filename = f'{artifact_type.value}-{timestamp}-{run_id}.json'
         target = subdir / filename
 
         fd, tmp_path = tempfile.mkstemp(dir=subdir, suffix='.tmp')

@@ -4,20 +4,64 @@ from oppie.models.apply import ApplyResult
 from oppie.models.capabilities import ProviderCapabilities
 from oppie.models.operation import Operation
 from oppie.models.sync import SyncResult
+from oppie.models.ticket import Ticket
 
 
-class ExternalProvider(ABC):
+class TicketProvider(ABC):
+    """Abstract base class for all ticket providers."""
+
+    @property
+    @abstractmethod
+    def capabilities(self) -> ProviderCapabilities:
+        """Advertise supported features."""
+
+    @abstractmethod
+    def read_ticket(self, ticket_id: str) -> Ticket | None:
+        """Read a ticket by ID. Return None if not found."""
+
+    @abstractmethod
+    def update_ticket(self, ticket_id: str, updates: dict) -> Ticket:
+        """Update a ticket's fields. Raise if ticket not found."""
+
+    @abstractmethod
+    def list_tickets(self) -> list[Ticket]:
+        """List all tickets."""
+
+    def validate_operations(self, operations: list[Operation]) -> list[str]:
+        """Validate operations against provider capabilities and ticket existence.
+
+        Check that the provider supports each field update and that
+        each ticket and field exists. Return a list of error strings.
+        Empty list means all valid.
+        """
+        errors: list[str] = []
+        for op in operations:
+            cap_error = self.capabilities.validate_operation(op)
+            if cap_error:
+                errors.append(f'[{op.ticket_id}.{op.field}] {cap_error}')
+                continue
+
+            ticket = self.read_ticket(op.ticket_id)
+            if ticket is None:
+                errors.append(
+                    f'[{op.ticket_id}.{op.field}] Ticket not found: {op.ticket_id}'
+                )
+                continue
+
+            if not hasattr(ticket, op.field):
+                errors.append(
+                    f'[{op.ticket_id}.{op.field}] Unknown field {op.field!r} on ticket'
+                )
+        return errors
+
+
+class ExternalProvider(TicketProvider, ABC):
     """Abstract base class for external ticket providers (Linear, Jira, etc)."""
 
     @property
     @abstractmethod
     def version(self) -> str:
         """Provider interface version (e.g., 'v1')."""
-
-    @property
-    @abstractmethod
-    def capabilities(self) -> ProviderCapabilities:
-        """Advertise supported features."""
 
     @abstractmethod
     def sync(self, checkpoint: str | None = None) -> SyncResult:

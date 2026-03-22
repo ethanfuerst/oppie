@@ -1,5 +1,5 @@
 from oppie.models.operation import Operation
-from oppie.models.plan import Plan, PlanStatus, compute_plan_id
+from oppie.models.plan import Plan, PlanStatus
 
 
 def test_compute_plan_id_deterministic():
@@ -13,7 +13,7 @@ def test_compute_plan_id_deterministic():
         ),
     ]
 
-    assert compute_plan_id(ops) == compute_plan_id(ops)
+    assert Plan.compute_id(ops) == Plan.compute_id(ops)
 
 
 def test_compute_plan_id_is_8_hex_chars():
@@ -26,7 +26,7 @@ def test_compute_plan_id_is_8_hex_chars():
             rationale='Done',
         ),
     ]
-    plan_id = compute_plan_id(ops)
+    plan_id = Plan.compute_id(ops)
 
     assert len(plan_id) == 8
     assert all(c in '0123456789abcdef' for c in plan_id)
@@ -52,11 +52,11 @@ def test_compute_plan_id_changes_with_different_operations():
         ),
     ]
 
-    assert compute_plan_id(ops_a) != compute_plan_id(ops_b)
+    assert Plan.compute_id(ops_a) != Plan.compute_id(ops_b)
 
 
 def test_compute_plan_id_empty_operations():
-    plan_id = compute_plan_id([])
+    plan_id = Plan.compute_id([])
 
     assert len(plan_id) == 8
 
@@ -72,7 +72,7 @@ def test_plan_construction():
         ),
     ]
     plan = Plan(
-        plan_id=compute_plan_id(ops),
+        plan_id=Plan.compute_id(ops),
         instruction='Mark T-1 as done',
         operations=ops,
         risks=['Ticket may have been updated'],
@@ -80,7 +80,7 @@ def test_plan_construction():
         status=PlanStatus.SAVED,
     )
 
-    assert plan.plan_id == compute_plan_id(ops)
+    assert plan.plan_id == Plan.compute_id(ops)
     assert plan.status == PlanStatus.SAVED
     assert plan.parent_plan_id is None
 
@@ -96,7 +96,7 @@ def test_plan_with_parent():
         ),
     ]
     plan = Plan(
-        plan_id=compute_plan_id(ops),
+        plan_id=Plan.compute_id(ops),
         instruction='Escalate T-1',
         operations=ops,
         risks=[],
@@ -132,7 +132,7 @@ def test_plan_roundtrip():
         ),
     ]
     plan = Plan(
-        plan_id=compute_plan_id(ops),
+        plan_id=Plan.compute_id(ops),
         instruction='Update tickets',
         operations=ops,
         risks=['Possible drift'],
@@ -156,7 +156,7 @@ def test_plan_to_dict_serializes_status_as_string():
         ),
     ]
     plan = Plan(
-        plan_id=compute_plan_id(ops),
+        plan_id=Plan.compute_id(ops),
         instruction='test',
         operations=ops,
         risks=[],
