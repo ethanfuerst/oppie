@@ -1,14 +1,16 @@
 import pytest
 
-from oppie.plan import PlanEngine
 from oppie.providers.local import LocalProvider
 from tests.helpers import setup_instance
 
 
 @pytest.fixture
-def plan_engine(tmp_path):
-    home = setup_instance(tmp_path)
+def home(tmp_path):
+    return setup_instance(tmp_path)
+
+
+@pytest.fixture
+def provider(home):
     provider = LocalProvider(home)
-    engine = PlanEngine(home, provider)
-    yield engine
+    yield provider
     provider.close()

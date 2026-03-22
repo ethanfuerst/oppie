@@ -20,43 +20,49 @@ def _make_ticket(ticket_id='T-1', title='Fix bug', status='open', priority='high
     )
 
 
-def test_build_prompt_returns_system_and_user_messages(plan_engine):
-    messages = plan_engine._build_prompt('close all bugs', {}, [], [])
+def test_build_prompt_returns_system_and_user_messages(home, provider):
+    engine = PlanEngine(home, provider)
+    messages = engine._build_prompt('close all bugs', {}, [], [])
 
     assert len(messages) == 2
     assert messages[0]['role'] == 'system'
     assert messages[1]['role'] == 'user'
 
 
-def test_build_prompt_system_message_is_system_prompt(plan_engine):
-    messages = plan_engine._build_prompt('do something', {}, [], [])
+def test_build_prompt_system_message_is_system_prompt(home, provider):
+    engine = PlanEngine(home, provider)
+    messages = engine._build_prompt('do something', {}, [], [])
 
     assert messages[0]['content'] == PlanEngine._SYSTEM_PROMPT
 
 
-def test_build_prompt_includes_instruction(plan_engine):
-    messages = plan_engine._build_prompt('prioritize security work', {}, [], [])
+def test_build_prompt_includes_instruction(home, provider):
+    engine = PlanEngine(home, provider)
+    messages = engine._build_prompt('prioritize security work', {}, [], [])
 
     assert 'prioritize security work' in messages[1]['content']
 
 
-def test_build_prompt_includes_tickets(plan_engine):
+def test_build_prompt_includes_tickets(home, provider):
+    engine = PlanEngine(home, provider)
     ticket = _make_ticket()
-    messages = plan_engine._build_prompt('do something', {}, [ticket], [])
+    messages = engine._build_prompt('do something', {}, [ticket], [])
 
     assert 'T-1' in messages[1]['content']
     assert 'Fix bug' in messages[1]['content']
 
 
-def test_build_prompt_includes_context(plan_engine):
+def test_build_prompt_includes_context(home, provider):
+    engine = PlanEngine(home, provider)
     context = {'vision': 'Be the best project tracker.'}
-    messages = plan_engine._build_prompt('do something', context, [], [])
+    messages = engine._build_prompt('do something', context, [], [])
 
     assert 'Be the best project tracker.' in messages[1]['content']
     assert 'Vision' in messages[1]['content']
 
 
-def test_build_prompt_includes_past_plans(plan_engine):
+def test_build_prompt_includes_past_plans(home, provider):
+    engine = PlanEngine(home, provider)
     plan = Plan(
         plan_id='abc12345',
         instruction='close bugs',
@@ -67,7 +73,7 @@ def test_build_prompt_includes_past_plans(plan_engine):
         created_at='2026-01-01T00:00:00Z',
         status=PlanStatus.APPLIED,
     )
-    messages = plan_engine._build_prompt('close all bugs', {}, [], [plan])
+    messages = engine._build_prompt('close all bugs', {}, [], [plan])
 
     assert 'abc12345' in messages[1]['content']
     assert 'close bugs' in messages[1]['content']
