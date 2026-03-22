@@ -1,3 +1,4 @@
+import os
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -64,6 +65,23 @@ class OppieConfig(BaseModel):
     llm: LLMConfig | None = None
 
 
+def resolve_api_key(config: ProviderConfig) -> str:
+    """Resolve API key from config (provider.yaml), then env var fallback.
+
+    Env var name is derived from provider type: e.g. LINEAR -> LINEAR_API_KEY.
+    """
+    if config.api_key:
+        return config.api_key
+    env_var = f'{config.provider_type.value.upper()}_API_KEY'
+    env_key = os.environ.get(env_var)
+    if env_key:
+        return env_key
+    raise ValueError(
+        f'{config.provider_type.value.capitalize()} API key not found. '
+        f'Set it in config/provider.yaml or the {env_var} environment variable.'
+    )
+
+
 def load_oppie_config(config_dir: Path) -> OppieConfig:
     """Load and validate oppie.yaml from the given config directory."""
     config_path = config_dir / 'oppie.yaml'
@@ -75,6 +93,14 @@ def load_oppie_config(config_dir: Path) -> OppieConfig:
 
     if data is None:
         raise ValueError(f'Config file is empty: {config_path}')
+
+    # Dispatch provider config to the right subclass
+    provider_data = data.get('provider', {})
+    provider_type = provider_data.get('type', 'local')
+    if provider_type == 'linear':
+        from oppie.providers.linear.config import LinearProviderConfig
+
+        data['provider'] = LinearProviderConfig(**provider_data)
 
     return OppieConfig(**data)
 

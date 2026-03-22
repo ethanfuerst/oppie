@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 
-from oppie.models.apply import ApplyResult
+from oppie.models.apply import OperationResult
 from oppie.models.capabilities import ProviderCapabilities
 from oppie.models.operation import Operation
 from oppie.models.sync import SyncResult
@@ -26,6 +26,23 @@ class TicketProvider(ABC):
     @abstractmethod
     def list_tickets(self) -> list[Ticket]:
         """List all tickets."""
+
+    def upsert_ticket(self, ticket: Ticket) -> Ticket:
+        """Insert or update a ticket. Default: try update, fall back to write.
+
+        Subclasses may override with an optimized implementation.
+        """
+        existing = self.read_ticket(ticket.id)
+        if existing is not None:
+            updates = {
+                k: v
+                for k, v in ticket.to_dict().items()
+                if k not in ('id', 'metadata', 'schema_version')
+            }
+            return self.update_ticket(ticket.id, updates)
+        raise NotImplementedError(
+            f'{type(self).__name__} does not support creating tickets via upsert'
+        )
 
     def validate_operations(self, operations: list[Operation]) -> list[str]:
         """Validate operations against provider capabilities and ticket existence.
@@ -68,5 +85,5 @@ class ExternalProvider(TicketProvider, ABC):
         """Sync tickets from external system to local cache."""
 
     @abstractmethod
-    def apply(self, operations: list[Operation]) -> ApplyResult:
-        """Apply mutations to external system (called when flushing outbox)."""
+    def apply(self, operations: list[Operation]) -> list[OperationResult]:
+        """Apply mutations to external system (outbox flush)."""

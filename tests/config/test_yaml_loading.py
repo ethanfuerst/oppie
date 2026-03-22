@@ -29,7 +29,7 @@ def test_load_oppie_config_full(tmp_path):
         tmp_path / 'oppie.yaml',
         {
             'instance_type': 'portfolio',
-            'provider': {'type': 'linear'},
+            'provider': {'type': 'linear', 'team_id': 'team-123'},
             'llm': {
                 'backend': 'openai-compatible',
                 'model': 'llama-3.2-8b',
@@ -152,7 +152,10 @@ def test_load_provider_credentials_empty_file(tmp_path):
 def test_load_config_merges_credentials(tmp_path):
     write_yaml(
         tmp_path / 'oppie.yaml',
-        {'instance_type': 'repo', 'provider': {'type': 'linear'}},
+        {
+            'instance_type': 'repo',
+            'provider': {'type': 'linear', 'team_id': 'team-123'},
+        },
     )
     write_yaml(tmp_path / 'provider.yaml', {'api_key': 'sk-merged'})
     config = load_config(tmp_path)

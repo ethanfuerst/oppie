@@ -19,8 +19,8 @@
 ## Optional dependencies (extras)
 
 - `httpx` and `textual` are **not** core deps — they live in `[project.optional-dependencies]`.
-- Extras: `llm` (httpx), `tui` (textual), `all` (both).
-- LLM provider modules (`openai_compatible.py`, `anthropic.py`, `_sse.py`) use lazy imports: `try: import httpx / except ImportError: httpx = None` with `from __future__ import annotations` for deferred type evaluation. Provider constructors raise `ImportError` with install hint if httpx is missing. The factory (`create_llm_provider()`) wraps this into `LLMNotConfiguredError`.
+- Extras: `llm` (httpx), `linear` (httpx), `tui` (textual), `all` (all three).
+- LLM provider modules (`openai_compatible.py`, `anthropic.py`, `_sse.py`) and `LinearProvider` use lazy imports: `try: import httpx / except ImportError: httpx = None` with `from __future__ import annotations` for deferred type evaluation. Provider constructors raise `ImportError` with install hint if httpx is missing. The factory (`create_llm_provider()`) wraps this into `LLMNotConfiguredError`.
 - CI jobs that need httpx/textual use `uv sync --frozen --all-extras`. The `core-import-check` CI job validates that `import oppie` works without extras.
 
 ## Commit style
@@ -37,7 +37,7 @@ Allowed types: `feat`, `fix`, `ci`, `chore`, `docs`, `refactor`, `test`
 - Organize test files by area in subdirectories (e.g., `tests/models/`, `tests/providers/`, `tests/drift/`).
 - Each test subdirectory has `__init__.py` and optionally `conftest.py` for directory-scoped helpers/fixtures.
 - Root `tests/conftest.py` has cross-cutting fixtures (e.g., `plan_engine`). `tests/helpers.py` has shared helpers (`make_ticket`, `write_ticket`, `setup_instance`).
-- `tests/providers/conftest.py` has its own `make_ticket` (different signature from `tests/helpers.make_ticket`) and an autouse `_close_provider` fixture for `LocalProvider` cleanup.
+- `tests/providers/local/conftest.py` has its own `make_ticket` (different signature from `tests/helpers.make_ticket`) and an autouse `_close_provider` fixture for `LocalProvider` cleanup. `tests/providers/linear/conftest.py` follows the same pattern with LINEAR-sourced tickets.
 
 ## Development commands
 
@@ -57,7 +57,7 @@ Allowed types: `feat`, `fix`, `ci`, `chore`, `docs`, `refactor`, `test`
 ## Project structure
 
 - `oppie/models/` — Core data models (Ticket, Plan, Operation, Apply, Drift, etc.). Each in its own file.
-- `oppie/providers/` — Storage backends. `base.py` defines `TicketProvider` ABC (with `read_ticket`, `update_ticket`, `list_tickets`, `capabilities`, and concrete `validate_operations`) and `ExternalProvider` (adds `sync`/`apply`). `local.py` implements `LocalProvider` with JSON-file-per-ticket storage and SQLite indexing.
+- `oppie/providers/` — Storage backends. `base.py` defines `TicketProvider` ABC (with `read_ticket`, `update_ticket`, `list_tickets`, `upsert_ticket`, `capabilities`, and concrete `validate_operations`) and `ExternalProvider` (adds `sync`/`apply`). Each provider is a package: `local/` has `provider.py` (`LocalProvider` with JSON+SQLite) and `__init__.py` re-exports. `linear/` has `config.py` (`LinearProviderConfig`), `provider.py` (`LinearProvider` wrapping a `TicketProvider` cache + Linear GraphQL API), and `__init__.py` re-exports.
 - `oppie/config.py` — YAML config loading, `OppieConfig` and `InstanceType` (local/remote).
 - `oppie/instance.py` — Instance initialization and discovery. Creates the directory tree under a home dir with a `.oppie-marker` file.
 - `oppie/artifacts.py` — `ArtifactStore` for saving/reading/listing JSON artifacts (ask, plan, apply, report, context) under `artifacts/`.
@@ -74,6 +74,7 @@ Allowed types: `feat`, `fix`, `ci`, `chore`, `docs`, `refactor`, `test`
   .oppie-marker        # JSON marker with version + instance type
   config/              # YAML config
   state/snapshots/     # State snapshots
+  state/linear/        # Linear provider state (checkpoint, outbox, lock)
   tickets/             # JSON ticket files (local provider)
   artifacts/{ask,plans,applies,reports,context}/
   state/session-*.json # Per-session state files (UUID-keyed)

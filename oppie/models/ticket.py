@@ -43,6 +43,7 @@ class Ticket:
     project: str | None
     description: str
     metadata: TicketMetadata
+    estimate: int | None = None
 
     def to_dict(self) -> dict:
         d = dataclasses.asdict(self)
@@ -59,4 +60,5 @@ class Ticket:
                 f'(expected {SCHEMA_VERSION!r})'
             )
         data['metadata'] = TicketMetadata.from_dict(data['metadata'])
+        data.setdefault('estimate', None)
         return cls(**data)

@@ -44,3 +44,14 @@ def test_update_ticket_raises_for_unknown_field(tmp_path):
 
     with pytest.raises(ValueError, match='Unknown ticket field'):
         provider.update_ticket('UNK-1', {'nonexistent': 'value'})
+
+
+def test_update_estimate(tmp_path):
+    provider = make_provider(tmp_path)
+    provider.create_ticket(make_ticket('EST-1'))
+    provider.update_ticket('EST-1', {'estimate': 3})
+
+    reloaded = provider.read_ticket('EST-1')
+
+    assert reloaded is not None
+    assert reloaded.estimate == 3

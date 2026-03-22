@@ -24,7 +24,9 @@ def test_atomic_write_cleans_up_temp_on_failure(tmp_path):
 
     ticket = make_ticket('ATOM-1')
     with (
-        patch('oppie.providers.local.json.dump', side_effect=OSError('disk full')),
+        patch(
+            'oppie.providers.local.provider.json.dump', side_effect=OSError('disk full')
+        ),
         pytest.raises(OSError, match='disk full'),
     ):
         provider.create_ticket(ticket)

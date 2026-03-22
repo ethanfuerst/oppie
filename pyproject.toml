@@ -12,8 +12,9 @@ dependencies = [
 
 [project.optional-dependencies]
 llm = ["httpx>=0.28.1"]
+linear = ["httpx>=0.28.1"]
 tui = ["textual>=8.1.1"]
-all = ["oppie[llm]", "oppie[tui]"]
+all = ["oppie[llm]", "oppie[linear]", "oppie[tui]"]
 
 [dependency-groups]
 dev = [
