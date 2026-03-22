@@ -89,6 +89,12 @@ Allowed types: `feat`, `fix`, `ci`, `chore`, `docs`, `refactor`, `test`
 - Non-TUI callers (CLI commands without TUI) wrap with `asyncio.run()`.
 - Both LLM providers implement async context manager protocol (`async with provider:`) for proper httpx client cleanup.
 
+## Dataclass conventions
+
+- Value-object dataclasses use `@dataclass(slots=True)` for memory efficiency and attribute-access speed.
+- Dataclasses mutated after `__init__` do **not** use `slots=True`: `Plan`, `Ticket`, `SessionData`.
+- When adding a new dataclass, use `slots=True` unless the class needs post-init mutation (e.g., `setattr`, field reassignment outside `__init__`).
+
 ## Code style
 
 - Single quotes for strings.

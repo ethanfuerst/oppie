@@ -10,7 +10,7 @@ class TicketSource(Enum):
     LOCAL = 'local'
 
 
-@dataclass
+@dataclass(slots=True)
 class TicketMetadata:
     source: TicketSource
     external_id: str | None = None

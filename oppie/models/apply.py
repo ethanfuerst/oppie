@@ -13,7 +13,7 @@ class OperationStatus(Enum):
     SKIPPED = 'skipped'
 
 
-@dataclass
+@dataclass(slots=True)
 class OperationResult:
     operation: Operation
     status: OperationStatus
@@ -32,7 +32,7 @@ class OperationResult:
         return cls(**data)
 
 
-@dataclass
+@dataclass(slots=True)
 class ApplyResult:
     apply_id: str
     plan: Plan

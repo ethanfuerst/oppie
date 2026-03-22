@@ -11,7 +11,7 @@ def generate_run_id() -> RunId:
     return str(uuid.uuid4())
 
 
-@dataclass
+@dataclass(slots=True)
 class RunLogEntry:
     run_id: RunId
     command: str

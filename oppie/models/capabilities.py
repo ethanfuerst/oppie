@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 from oppie.models.operation import Operation
 
 
-@dataclass
+@dataclass(slots=True)
 class ProviderCapabilities:
     supports_sync: bool = True
     supports_incremental_sync: bool = False

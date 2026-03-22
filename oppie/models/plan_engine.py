@@ -3,6 +3,7 @@ import re
 import tempfile
 import time
 import uuid
+from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -19,7 +20,7 @@ from oppie.providers.base import TicketProvider
 from oppie.run_log import RunLog, RunLogEntry, generate_run_id
 
 
-@dataclass
+@dataclass(slots=True)
 class PreApplyCheck:
     """Result of pre-apply validation (integrity, drift, capabilities)."""
 
@@ -413,17 +414,12 @@ class PlanEngine:
         result = DriftResult()
 
         # Collect which fields each ticket is changing
-        changing_fields: dict[str, set[str]] = {}
+        changing_fields: defaultdict[str, set[str]] = defaultdict(set)
         for op in plan.operations:
-            changing_fields.setdefault(op.ticket_id, set()).add(op.field)
+            changing_fields[op.ticket_id].add(op.field)
 
         # Collect unique ticket IDs (preserve operation order for deterministic output)
-        seen_tickets: set[str] = set()
-        ticket_ids: list[str] = []
-        for op in plan.operations:
-            if op.ticket_id not in seen_tickets:
-                seen_tickets.add(op.ticket_id)
-                ticket_ids.append(op.ticket_id)
+        ticket_ids = list(dict.fromkeys(op.ticket_id for op in plan.operations))
 
         for ticket_id in ticket_ids:
             ticket = self._provider.read_ticket(ticket_id)
@@ -564,18 +560,24 @@ class PlanEngine:
         tickets = self._provider.list_tickets()
 
         # Determine target status change
-        target_status: str | None = None
-        for keyword, status in _STATUS_KEYWORDS.items():
-            if keyword in words:
-                target_status = status
-                break
+        target_status = next(
+            (
+                status
+                for keyword, status in _STATUS_KEYWORDS.items()
+                if keyword in words
+            ),
+            None,
+        )
 
         # Determine target priority change
-        target_priority: str | None = None
-        for keyword, priority in _PRIORITY_KEYWORDS.items():
-            if keyword in words:
-                target_priority = priority
-                break
+        target_priority = next(
+            (
+                priority
+                for keyword, priority in _PRIORITY_KEYWORDS.items()
+                if keyword in words
+            ),
+            None,
+        )
 
         # Filter tickets by label keywords (any label word appearing in instruction)
         matching_tickets = tickets
