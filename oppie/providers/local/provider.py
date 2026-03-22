@@ -31,6 +31,7 @@ class LocalProvider(TicketProvider):
         'updated_at',
         'project',
         'description',
+        'estimate',
     )
 
     def __init__(self, home: Path) -> None:

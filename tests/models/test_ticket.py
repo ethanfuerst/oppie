@@ -168,3 +168,62 @@ def test_ticket_from_dict_rejects_missing_schema_version():
 
     with pytest.raises(ValueError, match='Unsupported schema version'):
         Ticket.from_dict(data)
+
+
+def test_ticket_estimate_defaults_to_none():
+    ticket = Ticket(
+        id='T-EST-1',
+        title='Test',
+        status='todo',
+        priority='medium',
+        owner=None,
+        labels=[],
+        created_at='2026-01-01T00:00:00Z',
+        updated_at='2026-01-01T00:00:00Z',
+        project=None,
+        description='desc',
+        metadata=TicketMetadata(source=TicketSource.LOCAL),
+    )
+
+    assert ticket.estimate is None
+
+
+def test_ticket_estimate_roundtrip():
+    ticket = Ticket(
+        id='T-EST-2',
+        title='Test',
+        status='todo',
+        priority='medium',
+        owner=None,
+        labels=[],
+        created_at='2026-01-01T00:00:00Z',
+        updated_at='2026-01-01T00:00:00Z',
+        project=None,
+        description='desc',
+        metadata=TicketMetadata(source=TicketSource.LOCAL),
+        estimate=5,
+    )
+    result = Ticket.from_dict(ticket.to_dict())
+
+    assert result.estimate == 5
+    assert result == ticket
+
+
+def test_ticket_from_dict_missing_estimate():
+    data = {
+        'schema_version': SCHEMA_VERSION,
+        'id': 'T-EST-3',
+        'title': 'Test',
+        'status': 'todo',
+        'priority': 'medium',
+        'owner': None,
+        'labels': [],
+        'created_at': '2026-01-01T00:00:00Z',
+        'updated_at': '2026-01-01T00:00:00Z',
+        'project': None,
+        'description': 'desc',
+        'metadata': {'source': 'local'},
+    }
+    ticket = Ticket.from_dict(data)
+
+    assert ticket.estimate is None

@@ -1,9 +1,8 @@
 import pytest
 
-from oppie.models.apply import ApplyResult
+from oppie.models.apply import OperationResult
 from oppie.models.capabilities import ProviderCapabilities
 from oppie.models.operation import Operation
-from oppie.models.plan import Plan, PlanStatus
 from oppie.models.sync import SyncResult
 from oppie.models.ticket import Ticket
 from oppie.providers.base import ExternalProvider
@@ -36,22 +35,8 @@ def test_concrete_provider_implements_interface():
         def sync(self, checkpoint: str | None = None) -> SyncResult:
             return SyncResult(tickets_upserted=0)
 
-        def apply(self, operations: list[Operation]) -> ApplyResult:
-            plan = Plan(
-                plan_id='p1',
-                instruction='test',
-                operations=[],
-                risks=[],
-                created_at='2026-01-01T00:00:00Z',
-                status=PlanStatus.SAVED,
-            )
-            return ApplyResult(
-                apply_id='a1',
-                plan=plan,
-                results=[],
-                duration=0.0,
-                created_at='2026-01-01T00:00:00Z',
-            )
+        def apply(self, operations: list[Operation]) -> list[OperationResult]:
+            return []
 
     provider = FakeProvider()
 
