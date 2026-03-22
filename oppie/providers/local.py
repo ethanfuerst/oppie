@@ -9,7 +9,7 @@ from oppie.models.ticket import Ticket
 from oppie.providers.base import TicketProvider
 
 
-@dataclass
+@dataclass(slots=True)
 class TicketFilter:
     status: str | None = None
     priority: str | None = None
@@ -21,7 +21,7 @@ class TicketFilter:
 class LocalProvider(TicketProvider):
     """File-backed ticket storage with SQLite indexing."""
 
-    _UPDATABLE_FIELDS = [
+    _UPDATABLE_FIELDS = (
         'title',
         'status',
         'priority',
@@ -31,7 +31,7 @@ class LocalProvider(TicketProvider):
         'updated_at',
         'project',
         'description',
-    ]
+    )
 
     def __init__(self, home: Path) -> None:
         self._home = home
@@ -162,11 +162,10 @@ class LocalProvider(TicketProvider):
 
     def list_tickets(self, filters: TicketFilter | None = None) -> list[Ticket]:
         if filters is None:
-            tickets = []
-            for path in sorted(self._tickets_dir.glob('*.json')):
-                data = json.loads(path.read_text())
-                tickets.append(Ticket.from_dict(data))
-            return tickets
+            return [
+                Ticket.from_dict(json.loads(path.read_text()))
+                for path in sorted(self._tickets_dir.glob('*.json'))
+            ]
 
         clauses: list[str] = []
         params: list[str] = []
@@ -190,12 +189,11 @@ class LocalProvider(TicketProvider):
         rows = self._conn.execute(query, params).fetchall()
         ticket_ids = [row[0] for row in rows]
 
-        tickets = []
-        for ticket_id in ticket_ids:
-            ticket = self.read_ticket(ticket_id)
-            if ticket is not None:
-                tickets.append(ticket)
-        return tickets
+        return [
+            ticket
+            for ticket_id in ticket_ids
+            if (ticket := self.read_ticket(ticket_id)) is not None
+        ]
 
     def search_tickets(self, query: str) -> list[Ticket]:
         pattern = f'%{query}%'
@@ -205,12 +203,11 @@ class LocalProvider(TicketProvider):
             (pattern, pattern),
         ).fetchall()
 
-        tickets = []
-        for (ticket_id,) in rows:
-            ticket = self.read_ticket(ticket_id)
-            if ticket is not None:
-                tickets.append(ticket)
-        return tickets
+        return [
+            ticket
+            for (ticket_id,) in rows
+            if (ticket := self.read_ticket(ticket_id)) is not None
+        ]
 
     def upsert_ticket(self, ticket: Ticket) -> Ticket:
         self._write_ticket_file(ticket)

@@ -10,7 +10,7 @@ class DriftResolution(Enum):
     SKIP_OPERATION = 'skip_operation'
 
 
-@dataclass
+@dataclass(slots=True)
 class FieldDrift:
     ticket_id: str
     field: str
@@ -25,7 +25,7 @@ class FieldDrift:
         return cls(**data)
 
 
-@dataclass
+@dataclass(slots=True)
 class DriftResult:
     critical_drifts: list[FieldDrift] = field(default_factory=list)
     informational_drifts: list[FieldDrift] = field(default_factory=list)

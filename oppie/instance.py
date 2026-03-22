@@ -8,7 +8,7 @@ from oppie.config import InstanceType, OppieConfig, load_config
 
 MARKER_FILENAME = '.oppie-marker'
 
-INSTANCE_DIRS = [
+INSTANCE_DIRS = (
     'config',
     'state',
     'state/snapshots',
@@ -21,10 +21,10 @@ INSTANCE_DIRS = [
     'artifacts/reports',
     'artifacts/context',
     'logs',
-]
+)
 
 
-@dataclass
+@dataclass(slots=True)
 class Marker:
     version: str
     instance_type: InstanceType

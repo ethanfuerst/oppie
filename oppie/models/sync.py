@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 
 
-@dataclass
+@dataclass(slots=True)
 class SyncResult:
     tickets_upserted: int
     checkpoint: str | None = None

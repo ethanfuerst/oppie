@@ -3,7 +3,7 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 
 
-@dataclass
+@dataclass(slots=True)
 class TokenUsage:
     prompt_tokens: int
     completion_tokens: int
@@ -22,7 +22,7 @@ class TokenUsage:
         )
 
 
-@dataclass
+@dataclass(slots=True)
 class LLMResponse:
     text: str
     json: dict | None
