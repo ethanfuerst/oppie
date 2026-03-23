@@ -5,6 +5,7 @@
 | Category | Choice | Notes |
 |----------|--------|-------|
 | CLI framework | Click | User preference from prior project experience |
+| CLI output | Rich | Styled output (spinners, checkmarks, tables) |
 | TUI library | Textual | Full TUI framework with widgets, layout, async |
 | Async framework | asyncio | Stdlib, works with Textual natively |
 | HTTP client | httpx | Async + sync hybrid, streaming support, HTTP/2 |
@@ -57,8 +58,9 @@ Allowed types: `feat`, `fix`, `ci`, `chore`, `docs`, `refactor`, `test`
 ## Project structure
 
 - `oppie/models/` — Core data models (Ticket, Plan, Operation, Apply, Drift, etc.). Each in its own file.
-- `oppie/providers/` — Storage backends. `base.py` defines `TicketProvider` ABC (with `read_ticket`, `update_ticket`, `list_tickets`, `upsert_ticket`, `capabilities`, and concrete `validate_operations`) and `ExternalProvider` (adds `sync`/`apply`). Each provider is a package: `local/` has `provider.py` (`LocalProvider` with JSON+SQLite) and `__init__.py` re-exports. `linear/` has `config.py` (`LinearProviderConfig`), `provider.py` (`LinearProvider` wrapping a `TicketProvider` cache + Linear GraphQL API), and `__init__.py` re-exports.
-- `oppie/config.py` — YAML config loading, `OppieConfig` and `InstanceType` (local/remote).
+- `oppie/providers/` — Storage backends. `base.py` defines `TicketProvider` ABC (with `read_ticket`, `update_ticket`, `list_tickets`, `upsert_ticket`, `capabilities`, and concrete `validate_operations`) and `ExternalProvider` (adds `sync`/`apply`). Each provider is a package: `local/` has `provider.py` (`LocalProvider` with JSON+SQLite and `setup()` classmethod) and `__init__.py` re-exports. `linear/` has `config.py` (`LinearProviderConfig` with `to_dict()`), `provider.py` (`LinearProvider` with `setup()` classmethod for interactive init), `discovery.py` (standalone GraphQL functions for listing teams/projects during init), and `__init__.py` re-exports.
+- `oppie/cli/` — Click CLI package. `__init__.py` defines the Click group with `--home` flag and registers commands. `commands/` has one module per command area (`init.py`, `config_cmd.py`, `context.py`). `console.py` has shared Rich output helpers (`success`, `warn`, `error`, `info`). `extras.py` detects installed optional extras at runtime.
+- `oppie/config.py` — YAML config loading/saving, `OppieConfig` and `InstanceType` (local/remote). `save_oppie_config()` and `save_provider_credentials()` use atomic writes.
 - `oppie/instance.py` — Instance initialization and discovery. Creates the directory tree under a home dir with a `.oppie-marker` file.
 - `oppie/artifacts.py` — `ArtifactStore` for saving/reading/listing JSON artifacts (ask, plan, apply, report, context) under `artifacts/`.
 - `oppie/run_log.py` — `RunLog` for append-only JSONL run logging under `logs/runs.jsonl`.
@@ -103,3 +105,5 @@ Allowed types: `feat`, `fix`, `ci`, `chore`, `docs`, `refactor`, `test`
 - snake_case for variables/functions, PascalCase for classes, UPPER_SNAKE_CASE for constants.
 - Type hints on all public function signatures.
 - Imports at top of file (no in-method imports except in tests when needed).
+- Provider `.setup()` classmethods use in-method imports (Click, discovery) since they're only called during `oppie init`.
+- CLI command module `config_cmd.py` (not `config.py`) avoids shadowing `oppie.config`.

@@ -182,6 +182,81 @@ class LinearRateLimitError(LinearAPIError):
 class LinearProvider(ExternalProvider):
     """Linear external provider — syncs via GraphQL, delegates storage to a cache provider."""
 
+    @classmethod
+    def setup(
+        cls,
+        home: Path,
+        cache: TicketProvider,
+    ) -> LinearProvider:
+        """Interactive setup for Linear provider during oppie init.
+
+        Prompt for API key, test connectivity, select team/project scope,
+        save config, and optionally run initial sync.
+        Returns a configured LinearProvider ready for use.
+        """
+        # Deferred imports: setup() is only called during `oppie init`,
+        # avoids pulling click/discovery into all provider usage
+        import click
+
+        from oppie.config import save_provider_credentials
+        from oppie.providers.linear.discovery import (
+            list_projects,
+            list_teams,
+            test_api_key,
+        )
+
+        # Prompt for API key
+        while True:
+            api_key = click.prompt('Linear API key', hide_input=True)
+            click.echo('Testing API key...')
+            if test_api_key(api_key):
+                click.echo('API key valid.')
+                break
+            click.echo('Error: Invalid API key (HTTP 401). Try again.')
+
+        # List teams
+        teams = list_teams(api_key)
+        if not teams:
+            raise click.ClickException('No teams found in workspace.')
+
+        click.echo('\nSelect team:')
+        for i, team in enumerate(teams, 1):
+            click.echo(f'  {i}. {team["name"]} ({team["key"]})')
+        choice = click.prompt('Team', type=click.IntRange(1, len(teams)))
+        selected_team = teams[choice - 1]
+
+        # Optionally select project
+        projects = list_projects(api_key, selected_team['id'])
+        project_id = None
+        if projects:
+            click.echo('\nSelect project (optional):')
+            click.echo('  0. All projects')
+            for i, proj in enumerate(projects, 1):
+                click.echo(f'  {i}. {proj["name"]}')
+            proj_choice = click.prompt(
+                'Project',
+                type=click.IntRange(0, len(projects)),
+                default=0,
+            )
+            if proj_choice > 0:
+                project_id = projects[proj_choice - 1]['id']
+
+        # Deferred import: avoids circular dependency at module level
+        from oppie.providers.linear.config import LinearProviderConfig
+
+        config = LinearProviderConfig(
+            type='linear',  # type: ignore[arg-type]
+            team_id=selected_team['id'],
+            project_id=project_id,
+            api_key=api_key,
+        )
+
+        # Save credentials
+        config_dir = home / 'config'
+        save_provider_credentials(config_dir, {'api_key': api_key})
+
+        return cls(home=home, cache=cache, config=config)
+
     def __init__(
         self,
         home: Path,

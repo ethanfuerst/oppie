@@ -583,6 +583,7 @@ dependencies = [
     { name = "click" },
     { name = "pydantic-settings" },
     { name = "pyyaml" },
+    { name = "rich" },
 ]
 
 [package.optional-dependencies]
@@ -622,6 +623,7 @@ requires-dist = [
     { name = "oppie", extras = ["tui"], marker = "extra == 'all'" },
     { name = "pydantic-settings", specifier = ">=2.13.1" },
     { name = "pyyaml", specifier = ">=6.0.3" },
+    { name = "rich", specifier = ">=13.0.0" },
     { name = "textual", marker = "extra == 'tui'", specifier = ">=8.1.1" },
 ]
 provides-extras = ["llm", "linear", "tui", "all"]
