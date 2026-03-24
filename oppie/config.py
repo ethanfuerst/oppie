@@ -1,4 +1,5 @@
 import os
+import tempfile
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -98,6 +99,7 @@ def load_oppie_config(config_dir: Path) -> OppieConfig:
     provider_data = data.get('provider', {})
     provider_type = provider_data.get('type', 'local')
     if provider_type == 'linear':
+        # Deferred import: circular dependency (config <- providers.linear.config)
         from oppie.providers.linear.config import LinearProviderConfig
 
         data['provider'] = LinearProviderConfig(**provider_data)
@@ -127,3 +129,53 @@ def load_config(config_dir: Path) -> OppieConfig:
     if 'api_key' in credentials:
         config.provider.api_key = credentials['api_key']
     return config
+
+
+def save_oppie_config(config_dir: Path, config: OppieConfig) -> Path:
+    """Write oppie.yaml to the config directory. Atomic write."""
+    config_dir.mkdir(parents=True, exist_ok=True)
+    target = config_dir / 'oppie.yaml'
+
+    data: dict[str, Any] = {
+        'instance_type': config.instance_type.value,
+        'provider': config.provider.to_dict(),
+    }
+    if config.llm:
+        data['llm'] = {
+            'backend': config.llm.backend.value,
+            'model': config.llm.model,
+        }
+        if config.llm.endpoint:
+            data['llm']['endpoint'] = config.llm.endpoint
+        if config.llm.max_tokens != 2000:
+            data['llm']['max_tokens'] = config.llm.max_tokens
+        if config.llm.temperature != 0.7:
+            data['llm']['temperature'] = config.llm.temperature
+
+    fd, tmp = tempfile.mkstemp(dir=config_dir, suffix='.tmp')
+    try:
+        with open(fd, 'w') as f:
+            yaml.safe_dump(data, f, default_flow_style=False, sort_keys=False)
+        Path(tmp).replace(target)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+
+    return target
+
+
+def save_provider_credentials(config_dir: Path, credentials: dict[str, Any]) -> Path:
+    """Write provider.yaml credentials. Atomic write."""
+    config_dir.mkdir(parents=True, exist_ok=True)
+    target = config_dir / 'provider.yaml'
+
+    fd, tmp = tempfile.mkstemp(dir=config_dir, suffix='.tmp')
+    try:
+        with open(fd, 'w') as f:
+            yaml.safe_dump(credentials, f, default_flow_style=False, sort_keys=False)
+        Path(tmp).replace(target)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+
+    return target

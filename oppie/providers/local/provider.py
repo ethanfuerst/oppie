@@ -21,6 +21,11 @@ class TicketFilter:
 class LocalProvider(TicketProvider):
     """File-backed ticket storage with SQLite indexing."""
 
+    @classmethod
+    def setup(cls, home: Path) -> 'LocalProvider':
+        """Set up a LocalProvider for an initialized instance home."""
+        return cls(home)
+
     _UPDATABLE_FIELDS = (
         'title',
         'status',

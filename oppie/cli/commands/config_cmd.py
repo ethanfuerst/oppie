@@ -1,0 +1,108 @@
+import asyncio
+
+import click
+
+from oppie.cli.console import console, info, success
+from oppie.cli.extras import extras_available
+from oppie.config import ProviderType
+from oppie.instance import Instance
+from oppie.llm import create_llm_provider
+
+
+@click.group('config')
+def config() -> None:
+    """Manage instance configuration."""
+
+
+@config.command()
+@click.pass_context
+def validate(ctx: click.Context) -> None:
+    """Validate instance configuration."""
+    home_override = ctx.obj.get('home')
+
+    info('Validating configuration...\n')
+
+    # Instance home
+    try:
+        home = Instance.detect(home_override)
+        _print_check('Instance home', str(home), 'ok')
+    except FileNotFoundError as e:
+        _print_check('Instance home', '', 'NOT FOUND')
+        raise click.ClickException(str(e)) from None
+
+    # Config file
+    config_path = home / 'config' / 'oppie.yaml'
+    if config_path.exists():
+        _print_check('Config file', str(config_path.relative_to(home)), 'ok')
+    else:
+        _print_check('Config file', 'oppie.yaml', 'MISSING')
+        raise click.ClickException(
+            "No configuration found. Run 'init' to create an instance."
+        )
+
+    # Load and validate config
+    try:
+        instance = Instance.load(home)
+        config = instance.config
+    except Exception as e:
+        _print_check('Config validation', '', 'INVALID')
+        raise click.ClickException(f'Config error: {e}') from None
+    _print_check('Config validation', '', 'ok')
+
+    if config is None:
+        raise click.ClickException('Config loaded but is None.')
+
+    # Provider config
+    provider_yaml = home / 'config' / 'provider.yaml'
+    if config.provider.provider_type != ProviderType.LOCAL:
+        if provider_yaml.exists():
+            _print_check('Provider config', 'provider.yaml', 'ok')
+        else:
+            _print_check('Provider config', 'provider.yaml', 'MISSING')
+    _print_check('Provider', config.provider.provider_type.value.capitalize(), 'ok')
+
+    # LLM backend
+    if config.llm:
+        endpoint = config.llm.endpoint or config.llm.backend.value
+        try:
+            provider = create_llm_provider(config.llm)
+            connected = asyncio.run(_test_llm_connection(provider))
+            status = 'ok' if connected else 'UNREACHABLE'
+        except Exception:
+            status = 'UNREACHABLE'
+        _print_check('LLM backend', endpoint, status)
+    else:
+        _print_check('LLM backend', 'not configured', 'ok (optional)')
+
+    # Context docs
+    context_dir = home / 'context'
+    context_files = list(context_dir.glob('*.md')) if context_dir.exists() else []
+    if context_files:
+        _print_check('Context docs', f'{len(context_files)} document(s)', 'ok')
+    else:
+        _print_check('Context docs', 'not configured', 'ok (optional)')
+
+    # Installed extras
+    extras = extras_available()
+    installed = [name for name, ok in extras.items() if ok]
+    extras_str = ', '.join(installed) if installed else 'none'
+    _print_check('Installed extras', extras_str, 'ok')
+
+    success('\nConfiguration is valid.')
+
+
+async def _test_llm_connection(provider) -> bool:  # type: ignore[no-untyped-def]
+    async with provider:
+        result: bool = await provider.test_connection()
+        return result
+
+
+def _print_check(label: str, value: str, status: str) -> None:
+    """Print an aligned validation check line."""
+    if status == 'ok' or status.startswith('ok'):
+        styled = f'[green]{status}[/green]'
+    elif status in ('MISSING', 'INVALID', 'NOT FOUND', 'UNREACHABLE'):
+        styled = f'[red]{status}[/red]'
+    else:
+        styled = status
+    console.print(f'  {label + ":":<20s} {value:<35s} {styled}')

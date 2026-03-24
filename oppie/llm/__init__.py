@@ -21,6 +21,7 @@ def create_llm_provider(
 
     Raise LLMNotConfiguredError if config is None.
     """
+    # Deferred import: avoids circular dependency (llm <- config)
     from oppie.config import LLMBackend, LLMConfig
 
     if not isinstance(config, LLMConfig):
@@ -28,6 +29,7 @@ def create_llm_provider(
 
     try:
         if config.backend == LLMBackend.OPENAI_COMPATIBLE:
+            # Deferred import: lazy optional dep (httpx)
             from oppie.llm.openai_compatible import OpenAICompatibleProvider
 
             return OpenAICompatibleProvider(
@@ -35,6 +37,7 @@ def create_llm_provider(
                 endpoint=config.endpoint or 'http://localhost:8080/v1',
             )
         elif config.backend == LLMBackend.ANTHROPIC:
+            # Deferred import: lazy optional dep (httpx)
             from oppie.llm.anthropic import AnthropicProvider
 
             return AnthropicProvider(
