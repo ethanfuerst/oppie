@@ -2,13 +2,11 @@ import pytest
 
 from oppie.models.operation import Operation
 from oppie.models.plan import Plan, PlanStatus
-from oppie.plan import PlanEngine
+from oppie.plan import load_plan
 
 
 def test_save_and_load_plan(home, provider):
-    engine = PlanEngine(home, provider)
     plan = Plan(
-        plan_id='abcd1234',
         instruction='close bugs',
         operations=[
             Operation('T-1', 'status', 'open', 'done', 'closing'),
@@ -18,12 +16,12 @@ def test_save_and_load_plan(home, provider):
         status=PlanStatus.SAVED,
     )
 
-    path = engine.save_plan(plan)
+    path = plan.save(home)
 
     assert path.exists()
-    assert path.name == 'plan-abcd1234.json'
+    assert path.name == f'plan-{plan.plan_id}.json'
 
-    loaded = engine.load_plan('abcd1234')
+    loaded = load_plan(home, plan.plan_id)
 
     assert loaded.plan_id == plan.plan_id
     assert loaded.instruction == plan.instruction
@@ -33,16 +31,12 @@ def test_save_and_load_plan(home, provider):
 
 
 def test_load_plan_not_found(home, provider):
-    engine = PlanEngine(home, provider)
-
     with pytest.raises(FileNotFoundError, match='Plan not found'):
-        engine.load_plan('nonexistent')
+        load_plan(home, 'nonexistent')
 
 
 def test_save_plan_with_parent_plan_id(home, provider):
-    engine = PlanEngine(home, provider)
     plan = Plan(
-        plan_id='child123',
         instruction='re-close bugs',
         operations=[],
         risks=[],
@@ -51,7 +45,7 @@ def test_save_plan_with_parent_plan_id(home, provider):
         parent_plan_id='parent99',
     )
 
-    engine.save_plan(plan)
-    loaded = engine.load_plan('child123')
+    plan.save(home)
+    loaded = load_plan(home, plan.plan_id)
 
     assert loaded.parent_plan_id == 'parent99'

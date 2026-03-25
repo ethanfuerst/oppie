@@ -286,6 +286,10 @@ class LinearProvider(ExternalProvider):
         self._member_map: dict[str, str] = {}  # member name -> id
 
     @property
+    def home(self) -> Path:
+        return self._home
+
+    @property
     def version(self) -> str:
         return 'v1'
 

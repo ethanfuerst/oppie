@@ -61,7 +61,7 @@ def test_compute_plan_id_empty_operations():
     assert len(plan_id) == 8
 
 
-def test_plan_construction():
+def test_plan_auto_computes_plan_id():
     ops = [
         Operation(
             ticket_id='T-1',
@@ -72,7 +72,6 @@ def test_plan_construction():
         ),
     ]
     plan = Plan(
-        plan_id=Plan.compute_id(ops),
         instruction='Mark T-1 as done',
         operations=ops,
         risks=['Ticket may have been updated'],
@@ -96,7 +95,6 @@ def test_plan_with_parent():
         ),
     ]
     plan = Plan(
-        plan_id=Plan.compute_id(ops),
         instruction='Escalate T-1',
         operations=ops,
         risks=[],
@@ -132,7 +130,6 @@ def test_plan_roundtrip():
         ),
     ]
     plan = Plan(
-        plan_id=Plan.compute_id(ops),
         instruction='Update tickets',
         operations=ops,
         risks=['Possible drift'],
@@ -156,7 +153,6 @@ def test_plan_to_dict_serializes_status_as_string():
         ),
     ]
     plan = Plan(
-        plan_id=Plan.compute_id(ops),
         instruction='test',
         operations=ops,
         risks=[],

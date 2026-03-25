@@ -47,6 +47,10 @@ class LocalProvider(TicketProvider):
         self._ensure_schema()
 
     @property
+    def home(self) -> Path:
+        return self._home
+
+    @property
     def capabilities(self) -> ProviderCapabilities:
         """Return capabilities for the local provider."""
         return ProviderCapabilities(

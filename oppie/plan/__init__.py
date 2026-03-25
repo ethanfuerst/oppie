@@ -1,6 +1,17 @@
-from oppie.models.plan_engine import PlanEngine, PreApplyCheck
+from oppie.plan.engine import (
+    PreApplyCheck,
+    amend_plan,
+    check_apply,
+    execute_apply,
+    generate_plan,
+    load_plan,
+)
 
 __all__ = [
-    'PlanEngine',
     'PreApplyCheck',
+    'amend_plan',
+    'check_apply',
+    'execute_apply',
+    'generate_plan',
+    'load_plan',
 ]

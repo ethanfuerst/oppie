@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 from oppie.models.apply import OperationResult
@@ -13,8 +15,12 @@ def test_external_provider_cannot_be_instantiated():
         ExternalProvider()
 
 
-def test_concrete_provider_implements_interface():
+def test_concrete_provider_implements_interface(tmp_path):
     class FakeProvider(ExternalProvider):
+        @property
+        def home(self) -> Path:
+            return tmp_path
+
         @property
         def version(self) -> str:
             return 'v1'

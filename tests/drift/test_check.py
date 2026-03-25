@@ -1,5 +1,5 @@
 from oppie.models.operation import Operation
-from oppie.plan import PlanEngine
+from oppie.plan.engine import _check_drift
 from tests.drift.conftest import make_plan
 from tests.helpers import make_ticket, write_ticket
 
@@ -7,11 +7,10 @@ from tests.helpers import make_ticket, write_ticket
 def test_no_drift_when_state_unchanged(home, provider):
     ticket = make_ticket('T-1', status='open')
     write_ticket(home, ticket)
-    engine = PlanEngine(home, provider)
     ops = [Operation('T-1', 'status', 'open', 'done', 'closing')]
     plan = make_plan(ops)
 
-    result = engine._check_drift(plan)
+    result = _check_drift(provider, plan)
 
     assert not result.has_any
     assert result.critical_drifts == []
@@ -22,12 +21,11 @@ def test_no_drift_when_state_unchanged(home, provider):
 def test_critical_drift_field_changed(home, provider):
     ticket = make_ticket('T-1', status='in_progress')
     write_ticket(home, ticket)
-    engine = PlanEngine(home, provider)
     # Plan recorded before_value as 'open', but ticket is now 'in_progress'
     ops = [Operation('T-1', 'status', 'open', 'done', 'closing')]
     plan = make_plan(ops)
 
-    result = engine._check_drift(plan)
+    result = _check_drift(provider, plan)
 
     assert result.has_critical
     assert len(result.critical_drifts) == 1
@@ -40,14 +38,13 @@ def test_critical_drift_field_changed(home, provider):
 def test_critical_drift_multiple_fields(home, provider):
     ticket = make_ticket('T-1', status='in_progress', priority='high')
     write_ticket(home, ticket)
-    engine = PlanEngine(home, provider)
     ops = [
         Operation('T-1', 'status', 'open', 'done', 'closing'),
         Operation('T-1', 'priority', 'low', 'high', 'escalating'),
     ]
     plan = make_plan(ops)
 
-    result = engine._check_drift(plan)
+    result = _check_drift(provider, plan)
 
     assert len(result.critical_drifts) == 2
     drifted_fields = {d.field for d in result.critical_drifts}
@@ -60,11 +57,10 @@ def test_informational_drift_other_field_changed(home, provider):
     # Now change owner (a field NOT in the plan's operations)
     modified_ticket = make_ticket('T-1', status='open', owner='bob')
     write_ticket(home, modified_ticket)
-    engine = PlanEngine(home, provider)
     ops = [Operation('T-1', 'status', 'open', 'done', 'closing')]
     plan = make_plan(ops, ticket_snapshots={'T-1': original_ticket})
 
-    result = engine._check_drift(plan)
+    result = _check_drift(provider, plan)
 
     assert not result.has_critical
     assert result.has_any
@@ -77,23 +73,21 @@ def test_informational_drift_other_field_changed(home, provider):
 def test_informational_drift_skipped_without_snapshots(home, provider):
     ticket = make_ticket('T-1', status='open', owner='bob')
     write_ticket(home, ticket)
-    engine = PlanEngine(home, provider)
     ops = [Operation('T-1', 'status', 'open', 'done', 'closing')]
     # No ticket_snapshots
     plan = make_plan(ops, ticket_snapshots=None)
 
-    result = engine._check_drift(plan)
+    result = _check_drift(provider, plan)
 
     assert result.informational_drifts == []
 
 
 def test_deleted_ticket_detected(home, provider):
     # Don't write any ticket — it's "deleted"
-    engine = PlanEngine(home, provider)
     ops = [Operation('T-GONE', 'status', 'open', 'done', 'closing')]
     plan = make_plan(ops)
 
-    result = engine._check_drift(plan)
+    result = _check_drift(provider, plan)
 
     assert result.has_critical
     assert result.deleted_tickets == ['T-GONE']
@@ -103,14 +97,13 @@ def test_deleted_ticket_plus_drift(home, provider):
     # T-1 has drift, T-2 is deleted
     ticket = make_ticket('T-1', status='in_progress')
     write_ticket(home, ticket)
-    engine = PlanEngine(home, provider)
     ops = [
         Operation('T-1', 'status', 'open', 'done', 'closing'),
         Operation('T-2', 'status', 'open', 'done', 'closing'),
     ]
     plan = make_plan(ops)
 
-    result = engine._check_drift(plan)
+    result = _check_drift(provider, plan)
 
     assert result.has_critical
     assert len(result.critical_drifts) == 1
@@ -122,11 +115,10 @@ def test_no_drift_labels_different_order(home, provider):
     # Ticket has labels in different order than plan's before_value
     ticket = make_ticket('T-1', labels=['b', 'a'])
     write_ticket(home, ticket)
-    engine = PlanEngine(home, provider)
     ops = [Operation('T-1', 'labels', ['a', 'b'], ['a', 'b', 'c'], 'add label')]
     plan = make_plan(ops)
 
-    result = engine._check_drift(plan)
+    result = _check_drift(provider, plan)
 
     assert not result.has_any
 
@@ -136,12 +128,11 @@ def test_field_now_null_is_drift(home, provider):
     # Set owner to None
     ticket.owner = None
     write_ticket(home, ticket)
-    engine = PlanEngine(home, provider)
     # Plan recorded before_value as 'alice'
     ops = [Operation('T-1', 'owner', 'alice', 'bob', 'reassign')]
     plan = make_plan(ops)
 
-    result = engine._check_drift(plan)
+    result = _check_drift(provider, plan)
 
     assert result.has_critical
     assert len(result.critical_drifts) == 1

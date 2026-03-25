@@ -37,7 +37,7 @@ Allowed types: `feat`, `fix`, `ci`, `chore`, `docs`, `refactor`, `test`
 - Use plain `test_*` functions, not `Test*` classes.
 - Organize test files by area in subdirectories (e.g., `tests/models/`, `tests/providers/`, `tests/drift/`).
 - Each test subdirectory has `__init__.py` and optionally `conftest.py` for directory-scoped helpers/fixtures.
-- Root `tests/conftest.py` has cross-cutting fixtures (e.g., `plan_engine`). `tests/helpers.py` has shared helpers (`make_ticket`, `write_ticket`, `setup_instance`).
+- Root `tests/conftest.py` has cross-cutting fixtures (e.g., `home`, `provider`). `tests/helpers.py` has shared helpers (`make_ticket`, `write_ticket`, `setup_instance`).
 - `tests/providers/local/conftest.py` has its own `make_ticket` (different signature from `tests/helpers.make_ticket`) and an autouse `_close_provider` fixture for `LocalProvider` cleanup. `tests/providers/linear/conftest.py` follows the same pattern with LINEAR-sourced tickets.
 
 ## Development commands
@@ -57,15 +57,14 @@ Allowed types: `feat`, `fix`, `ci`, `chore`, `docs`, `refactor`, `test`
 
 ## Project structure
 
-- `oppie/models/` — Core data models (Ticket, Plan, Operation, Apply, Drift, etc.). Each in its own file.
-- `oppie/providers/` — Storage backends. `base.py` defines `TicketProvider` ABC (with `read_ticket`, `update_ticket`, `list_tickets`, `upsert_ticket`, `capabilities`, and concrete `validate_operations`) and `ExternalProvider` (adds `sync`/`apply`). Each provider is a package: `local/` has `provider.py` (`LocalProvider` with JSON+SQLite and `setup()` classmethod) and `__init__.py` re-exports. `linear/` has `config.py` (`LinearProviderConfig` with `to_dict()`), `provider.py` (`LinearProvider` with `setup()` classmethod for interactive init), `discovery.py` (standalone GraphQL functions for listing teams/projects during init), and `__init__.py` re-exports.
+- `oppie/models/` — Pure data models (Ticket, Plan, Operation, Apply, Drift, etc.). Each in its own file. No orchestration logic or I/O. `Plan.plan_id` is auto-computed in `__post_init__` from operations. `Plan.checked` tracks whether `check_apply()` has validated it (required before `execute_apply()`). `Plan.save(home)` handles atomic JSON persistence and index updates.
+- `oppie/providers/` — Storage backends. `base.py` defines `TicketProvider` ABC (with `home` property, `read_ticket`, `update_ticket`, `list_tickets`, `upsert_ticket`, `capabilities`, and concrete `validate_operations`) and `ExternalProvider` (adds `sync`/`apply`). Plan engine functions read `provider.home` instead of taking `home` as a parameter. Each provider is a package: `local/` has `provider.py` (`LocalProvider` with JSON+SQLite and `setup()` classmethod) and `__init__.py` re-exports. `linear/` has `config.py` (`LinearProviderConfig` with `to_dict()`), `provider.py` (`LinearProvider` with `setup()` classmethod for interactive init), `discovery.py` (standalone GraphQL functions for listing teams/projects during init), and `__init__.py` re-exports.
 - `oppie/cli/` — Click CLI package. `__init__.py` defines the Click group with `--home` flag and registers commands. `commands/` has one module per command area (`init.py`, `config_cmd.py`, `context.py`). `console.py` has shared Rich output helpers (`success`, `warn`, `error`, `info`). `extras.py` detects installed optional extras at runtime.
 - `oppie/config.py` — YAML config loading/saving, `OppieConfig` and `InstanceType` (local/remote). `save_oppie_config()` and `save_provider_credentials()` use atomic writes.
 - `oppie/instance.py` — Instance initialization and discovery. Creates the directory tree under a home dir with a `.oppie-marker` file.
 - `oppie/artifacts.py` — `ArtifactStore` for saving/reading/listing JSON artifacts (ask, plan, apply, report, context) under `artifacts/`.
 - `oppie/run_log.py` — `RunLog` for append-only JSONL run logging under `logs/runs.jsonl`.
-- `oppie/models/plan_engine.py` — `PlanEngine` class: the full plan lifecycle engine. Created via `Plan.engine(home, provider, config)`. Public methods: `generate()` (async), `amend()` (async), `check_apply()`, `execute_apply()`, `save_plan()`, `load_plan()`. Private methods handle fallback generation, drift detection, preflight validation, prompt building, plan indexing, context loading, and similar-plan search. `PreApplyCheck` dataclass also lives here.
-- `oppie/plan/` — Thin re-export package. `__init__.py` re-exports `PlanEngine` and `PreApplyCheck` from `oppie.models.plan_engine`.
+- `oppie/plan/` — Plan orchestration package. `engine.py` contains module-level functions for the full plan lifecycle: `generate_plan()` (async), `amend_plan()` (async), `check_apply()`, `execute_apply()`, `load_plan()`. Also contains `PreApplyCheck` dataclass. `check_apply()` sets `plan.checked = True` and saves; `execute_apply()` requires `checked` to be `True`. Private helpers handle fallback generation, drift detection, preflight validation, prompt building, plan indexing, context loading, and similar-plan search. `__init__.py` re-exports all public functions and `PreApplyCheck`.
 - `oppie/llm/` — LLM provider abstraction. `base.py` defines the `LLMProvider` ABC, `TokenUsage`, `LLMResponse`, `StreamResult` dataclasses, and `LLMNotConfiguredError`. `openai_compatible.py` and `anthropic.py` are the two backends. `_sse.py` is a shared SSE parser. `__init__.py` exports types and `create_llm_provider()` factory.
 - `oppie/session.py` — `Session` for per-session state (`state/session-{uuid}.json`). Tracks active plan, recent run IDs, last command timestamp. Supports multiple concurrent sessions via UUID-keyed files.
 
@@ -87,7 +86,7 @@ Allowed types: `feat`, `fix`, `ci`, `chore`, `docs`, `refactor`, `test`
 
 ## Async conventions
 
-- `oppie/llm/` and `PlanEngine.generate()`/`amend()` are async. All `LLMProvider` methods are async. `PlanEngine.check_apply()`/`execute_apply()` and drift detection are synchronous.
+- `oppie/llm/` and `oppie.plan.generate_plan()`/`amend_plan()` are async. All `LLMProvider` methods are async. `oppie.plan.check_apply()`/`execute_apply()` and drift detection are synchronous.
 - Textual (TUI) callers can `await` directly since Textual runs on asyncio.
 - Non-TUI callers (CLI commands without TUI) wrap with `asyncio.run()`.
 - Both LLM providers implement async context manager protocol (`async with provider:`) for proper httpx client cleanup.
