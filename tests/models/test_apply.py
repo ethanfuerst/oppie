@@ -3,9 +3,8 @@ from oppie.models.operation import Operation
 from oppie.models.plan import Plan, PlanStatus
 
 
-def _make_plan(plan_id='deadbeef'):
+def _make_plan():
     return Plan(
-        plan_id=plan_id,
         instruction='test instruction',
         operations=[],
         risks=[],
@@ -85,7 +84,7 @@ def test_apply_result_construction():
     )
 
     assert apply_result.apply_id == 'a1b2c3d4'
-    assert apply_result.plan_id == 'deadbeef'
+    assert apply_result.plan_id == apply_result.plan.plan_id
     assert apply_result.duration == 1.5
     assert len(apply_result.results) == 1
 
@@ -123,7 +122,7 @@ def test_apply_result_mixed_statuses():
     ]
     apply_result = ApplyResult(
         apply_id='id-001',
-        plan=_make_plan('plan-001'),
+        plan=_make_plan(),
         results=results,
         duration=3.2,
         created_at='2026-03-01T12:00:00Z',
@@ -164,7 +163,7 @@ def test_apply_result_to_dict_serializes_enums():
     )
     apply_result = ApplyResult(
         apply_id='id-001',
-        plan=_make_plan('plan-001'),
+        plan=_make_plan(),
         results=[
             OperationResult(operation=op, status=OperationStatus.FAILED, error='oops')
         ],

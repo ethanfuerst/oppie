@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from pathlib import Path
 
 from oppie.models.apply import OperationResult
 from oppie.models.capabilities import ProviderCapabilities
@@ -9,6 +10,11 @@ from oppie.models.ticket import Ticket
 
 class TicketProvider(ABC):
     """Abstract base class for all ticket providers."""
+
+    @property
+    @abstractmethod
+    def home(self) -> Path:
+        """Instance home directory."""
 
     @property
     @abstractmethod

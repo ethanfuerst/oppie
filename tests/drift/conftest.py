@@ -3,7 +3,6 @@ from oppie.models.plan import Plan, PlanStatus
 
 def make_plan(operations, ticket_snapshots=None):
     return Plan(
-        plan_id='testplan1',
         instruction='test instruction',
         operations=operations,
         risks=[],

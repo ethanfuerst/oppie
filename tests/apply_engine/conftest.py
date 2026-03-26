@@ -2,18 +2,21 @@ from oppie.models.plan import Plan, PlanStatus
 
 
 def make_and_save_plan(
-    engine, operations, status=PlanStatus.SAVED, ticket_snapshots=None
+    home,
+    operations,
+    status=PlanStatus.SAVED,
+    ticket_snapshots=None,
+    checked=False,
 ):
-    """Create a plan with correct plan_id and save it."""
-    plan_id = Plan.compute_id(operations)
+    """Create a plan with auto-computed plan_id and save it."""
     plan = Plan(
-        plan_id=plan_id,
         instruction='test instruction',
         operations=operations,
         risks=[],
         created_at='2026-01-01T00:00:00Z',
         status=status,
         ticket_snapshots=ticket_snapshots,
+        checked=checked,
     )
-    engine.save_plan(plan)
+    plan.save(home)
     return plan
