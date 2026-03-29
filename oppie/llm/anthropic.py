@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from typing import TYPE_CHECKING, Any
 
@@ -13,6 +14,8 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
 from oppie.llm.base import LLMProvider, LLMResponse, StreamResult, TokenUsage
+
+logger = logging.getLogger(__name__)
 
 _ANTHROPIC_API_URL = 'https://api.anthropic.com'
 _ANTHROPIC_VERSION = '2023-06-01'
@@ -52,6 +55,12 @@ class AnthropicProvider(LLMProvider):
         max_tokens: int = 2000,
         temperature: float = 0.7,
     ) -> LLMResponse:
+        logger.debug(
+            'Anthropic generate: model=%s max_tokens=%d temp=%.1f',
+            self._model,
+            max_tokens,
+            temperature,
+        )
         system, mapped_messages = _map_messages(messages)
         body: dict[str, Any] = {
             'model': self._model,
@@ -76,6 +85,11 @@ class AnthropicProvider(LLMProvider):
         usage = TokenUsage(
             prompt_tokens=data['usage']['input_tokens'],
             completion_tokens=data['usage']['output_tokens'],
+        )
+        logger.debug(
+            'Anthropic response: prompt_tokens=%d completion_tokens=%d',
+            usage.prompt_tokens,
+            usage.completion_tokens,
         )
         if response_schema is not None:
             tool_block = next(b for b in data['content'] if b['type'] == 'tool_use')
@@ -110,6 +124,7 @@ class AnthropicProvider(LLMProvider):
     async def _stream_chunks(
         self, body: dict, result: StreamResult
     ) -> AsyncIterator[str]:
+        logger.debug('Anthropic stream started: model=%s', self._model)
         prompt_tokens = 0
         completion_tokens = 0
         async with self._client.stream('POST', '/v1/messages', json=body) as resp:
@@ -135,6 +150,11 @@ class AnthropicProvider(LLMProvider):
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
         )
+        logger.debug(
+            'Anthropic stream complete: prompt_tokens=%d completion_tokens=%d',
+            prompt_tokens,
+            completion_tokens,
+        )
 
     async def close(self) -> None:
         await self._client.aclose()
@@ -149,9 +169,11 @@ class AnthropicProvider(LLMProvider):
                     'max_tokens': 1,
                 },
             )
-            return resp.status_code == 200
+            result = resp.status_code == 200
         except httpx.HTTPError:
-            return False
+            result = False
+        logger.debug('Anthropic connection test: %s', 'ok' if result else 'failed')
+        return result
 
 
 def _map_messages(

@@ -434,6 +434,7 @@ class LinearProvider(ExternalProvider):
 
     def apply(self, operations: list[Operation]) -> list[OperationResult]:
         """Send mutations to Linear. Called during outbox flush."""
+        logger.debug('Applying %d operations', len(operations))
         if not self._state_map:
             self._refresh_lookup_caches()
 
@@ -460,27 +461,29 @@ class LinearProvider(ExternalProvider):
                 success = data.get('issueUpdate', {}).get('success', False)
 
                 if success:
-                    results.append(
-                        OperationResult(
-                            operation=op,
-                            status=OperationStatus.OK,
-                        )
+                    result = OperationResult(
+                        operation=op,
+                        status=OperationStatus.OK,
                     )
                 else:
-                    results.append(
-                        OperationResult(
-                            operation=op,
-                            status=OperationStatus.FAILED,
-                            error='Linear mutation returned success=false',
-                        )
-                    )
-            except LinearAPIError as e:
-                results.append(
-                    OperationResult(
+                    result = OperationResult(
                         operation=op,
                         status=OperationStatus.FAILED,
-                        error=str(e),
+                        error='Linear mutation returned success=false',
                     )
+                results.append(result)
+                logger.debug(
+                    'Operation %s.%s: %s', op.ticket_id, op.field, result.status.value
+                )
+            except LinearAPIError as e:
+                result = OperationResult(
+                    operation=op,
+                    status=OperationStatus.FAILED,
+                    error=str(e),
+                )
+                results.append(result)
+                logger.debug(
+                    'Operation %s.%s: %s', op.ticket_id, op.field, result.status.value
                 )
         return results
 
@@ -489,10 +492,12 @@ class LinearProvider(ExternalProvider):
         operations = self._read_outbox()
         if not operations:
             return []
+        logger.debug('Flushing outbox: %d operations', len(operations))
         results = self.apply(operations)
         # Remove successful operations from outbox
         failed_ops = [r.operation for r in results if r.status != OperationStatus.OK]
         self._write_outbox(failed_ops)
+        logger.debug('Outbox flush complete: %d failed', len(failed_ops))
         return results
 
     def _graphql(self, query: str, variables: dict | None = None) -> dict:
@@ -501,7 +506,9 @@ class LinearProvider(ExternalProvider):
         if variables:
             payload['variables'] = variables
 
+        logger.debug('GraphQL request (%d bytes)', len(json.dumps(payload)))
         resp = self._client.post('', json=payload)
+        logger.debug('GraphQL response: %d status', resp.status_code)
 
         if resp.status_code == 401:
             raise LinearAuthError('Authentication failed. Check your Linear API key.')
@@ -623,12 +630,19 @@ class LinearProvider(ExternalProvider):
                 cache.update({n['name']: n['id'] for n in nodes})
             except LinearAPIError:
                 pass
+        logger.debug(
+            'Refreshed lookup caches: %d states, %d labels, %d members',
+            len(self._state_map),
+            len(self._label_map),
+            len(self._member_map),
+        )
 
     def _load_checkpoint(self) -> str | None:
         if not self._checkpoint_path.exists():
             return None
         data = json.loads(self._checkpoint_path.read_text())
         checkpoint: str | None = data.get('checkpoint')
+        logger.debug('Loaded checkpoint: %s', checkpoint)
         return checkpoint
 
     def _save_checkpoint(self, checkpoint: str) -> None:
@@ -644,6 +658,7 @@ class LinearProvider(ExternalProvider):
         except BaseException:
             Path(tmp).unlink(missing_ok=True)
             raise
+        logger.debug('Saved checkpoint: %s', checkpoint)
 
     def _append_outbox(self, op: Operation) -> None:
         self._outbox_path.parent.mkdir(parents=True, exist_ok=True)
@@ -654,6 +669,7 @@ class LinearProvider(ExternalProvider):
                     f.write(json.dumps(op.to_dict(), separators=(',', ':')) + '\n')
             finally:
                 fcntl.flock(lock, fcntl.LOCK_UN)
+        logger.debug('Appended operation to outbox: %s.%s', op.ticket_id, op.field)
 
     def _read_outbox(self) -> list[Operation]:
         if not self._outbox_path.exists():
@@ -665,6 +681,7 @@ class LinearProvider(ExternalProvider):
                 for line in self._outbox_path.read_text().splitlines():
                     if line.strip():
                         ops.append(Operation.from_dict(json.loads(line)))
+                logger.debug('Read %d operations from outbox', len(ops))
                 return ops
             finally:
                 fcntl.flock(lock, fcntl.LOCK_UN)

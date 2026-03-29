@@ -1,4 +1,5 @@
 import json
+import logging
 import re
 import time
 import uuid
@@ -17,6 +18,8 @@ from oppie.models.plan import PLAN_INDEX_FILENAME, Plan, PlanStatus
 from oppie.models.ticket import Ticket
 from oppie.providers.base import TicketProvider
 from oppie.run_log import RunLog, RunLogEntry, generate_run_id
+
+logger = logging.getLogger(__name__)
 
 PLAN_RESPONSE_SCHEMA: dict = {
     'type': 'object',
@@ -121,23 +124,27 @@ async def generate_plan(
     6. Run preflight validation (capabilities + ticket existence).
     7. Save plan as JSON artifact.
     """
+    logger.info('Generating plan for instruction: %r', instruction)
     home = provider.home
 
     # 1. Load tickets from the provider
     tickets = provider.list_tickets()
     ticket_snapshots = {t.id: t for t in tickets}
+    logger.debug('Loaded %d tickets', len(tickets))
 
     # 2. Load context docs (vision, roadmap, etc.) if present
     context = _load_context(home)
 
     # 3. Find similar past plans (up to 3) for few-shot context
     past_plans = _find_similar_plans(home, instruction)
+    logger.debug('Found %d similar past plans', len(past_plans))
 
     # 4. Build LLM prompt and call LLM (fall back to keyword matching if no LLM)
     try:
         llm_config = config.llm if config else None
         llm = create_llm_provider(llm_config)
     except LLMNotConfiguredError:
+        logger.debug('Using fallback plan generation (no LLM configured)')
         plan = _generate_fallback(provider, instruction)
         preflight_errors = _run_preflight(provider, plan.operations)
         if preflight_errors:
@@ -163,6 +170,7 @@ async def generate_plan(
 
     # 5. Parse LLM response into Operation objects
     raw_ops = response.json.get('operations', [])
+    logger.debug('LLM returned %d operations', len(raw_ops))
     operations = [
         Operation(
             ticket_id=op['ticket_id'],
@@ -179,6 +187,7 @@ async def generate_plan(
     preflight_errors = _run_preflight(provider, operations)
     status = PlanStatus.INVALID if preflight_errors else PlanStatus.SAVED
     if preflight_errors:
+        logger.debug('Preflight found %d errors', len(preflight_errors))
         risks.extend(preflight_errors)
 
     plan = Plan(
@@ -192,6 +201,7 @@ async def generate_plan(
 
     # 7. Save plan as JSON artifact
     plan.save(home)
+    logger.info('Plan %s saved with %d operations', plan.plan_id, len(plan.operations))
     return plan
 
 
@@ -205,10 +215,12 @@ async def amend_plan(
     Set parent_plan_id to the original plan's ID.
     The new plan gets its own ID (content hash of new operations).
     """
+    logger.info('Amending plan %s', plan_id)
     home = provider.home
     original = load_plan(home, plan_id)
     new_plan = await generate_plan(provider, config, original.instruction)
     new_plan.parent_plan_id = plan_id
+    logger.debug('New plan %s (parent=%s)', new_plan.plan_id, plan_id)
     # Re-save with parent_plan_id set
     new_plan.save(home)
     return new_plan
@@ -222,6 +234,7 @@ def check_apply(
 
     Return a PreApplyCheck with results for the UI layer to inspect.
     """
+    logger.info('Checking plan %s for apply', plan_id)
     plan = load_plan(provider.home, plan_id)
 
     # Integrity check
@@ -237,6 +250,14 @@ def check_apply(
     # Capability re-check
     capability_errors = provider.validate_operations(plan.operations)
 
+    logger.debug(
+        'Integrity=%s, already_applied=%s, drift_critical=%d, drift_info=%d, cap_errors=%d',
+        integrity_ok,
+        already_applied,
+        len(drift.critical_drifts),
+        len(drift.informational_drifts),
+        len(capability_errors),
+    )
     plan.checked = True
     plan.save(provider.home)
 
@@ -261,6 +282,7 @@ def execute_apply(
     Re-validates integrity and drift as a safety net.
     Executes operations sequentially, stops on first failure.
     """
+    logger.info('Executing apply for plan %s', plan_id)
     home = provider.home
     plan = load_plan(home, plan_id)
 
@@ -327,18 +349,45 @@ def execute_apply(
 
         try:
             provider.update_ticket(op.ticket_id, {op.field: op.after_value})
-            results.append(OperationResult(operation=op, status=OperationStatus.OK))
+            result = OperationResult(operation=op, status=OperationStatus.OK)
+            results.append(result)
+            logger.debug(
+                'Operation %d/%d: %s.%s -> %s',
+                i + 1,
+                len(effective_ops),
+                op.ticket_id,
+                op.field,
+                result.status.value,
+            )
         except Exception as e:
-            results.append(
-                OperationResult(
-                    operation=op,
-                    status=OperationStatus.FAILED,
-                    error=str(e),
-                )
+            result = OperationResult(
+                operation=op,
+                status=OperationStatus.FAILED,
+                error=str(e),
+            )
+            results.append(result)
+            logger.debug(
+                'Operation %d/%d: %s.%s -> %s',
+                i + 1,
+                len(effective_ops),
+                op.ticket_id,
+                op.field,
+                result.status.value,
             )
             failed = True
 
     duration = time.monotonic() - start_time
+    ok_count = sum(1 for r in results if r.status == OperationStatus.OK)
+    fail_count = sum(1 for r in results if r.status == OperationStatus.FAILED)
+    skip_count = sum(1 for r in results if r.status == OperationStatus.SKIPPED)
+    logger.info(
+        'Apply %s complete: %.2fs, %d ok, %d failed, %d skipped',
+        apply_id,
+        duration,
+        ok_count,
+        fail_count,
+        skip_count,
+    )
     created_at = datetime.now(UTC).isoformat()
 
     apply_result = ApplyResult(
@@ -472,6 +521,12 @@ def _check_drift(provider: TicketProvider, plan: Plan) -> DriftResult:
                         )
                     )
 
+    logger.debug(
+        'Drift check: %d deleted, %d critical, %d informational',
+        len(result.deleted_tickets),
+        len(result.critical_drifts),
+        len(result.informational_drifts),
+    )
     return result
 
 

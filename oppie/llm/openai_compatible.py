@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from typing import TYPE_CHECKING
 
@@ -14,6 +15,8 @@ if TYPE_CHECKING:
 
 from oppie.llm._sse import parse_sse_events
 from oppie.llm.base import LLMProvider, LLMResponse, StreamResult, TokenUsage
+
+logger = logging.getLogger(__name__)
 
 
 class OpenAICompatibleProvider(LLMProvider):
@@ -50,6 +53,12 @@ class OpenAICompatibleProvider(LLMProvider):
         max_tokens: int = 2000,
         temperature: float = 0.7,
     ) -> LLMResponse:
+        logger.debug(
+            'OpenAI generate: model=%s max_tokens=%d temp=%.1f',
+            self._model,
+            max_tokens,
+            temperature,
+        )
         body: dict = {
             'model': self._model,
             'messages': messages,
@@ -68,6 +77,11 @@ class OpenAICompatibleProvider(LLMProvider):
         usage = TokenUsage(
             prompt_tokens=data['usage']['prompt_tokens'],
             completion_tokens=data['usage']['completion_tokens'],
+        )
+        logger.debug(
+            'OpenAI response: prompt_tokens=%d completion_tokens=%d',
+            usage.prompt_tokens,
+            usage.completion_tokens,
         )
         parsed_json = None
         if response_schema is not None:
@@ -96,6 +110,7 @@ class OpenAICompatibleProvider(LLMProvider):
     async def _stream_chunks(
         self, body: dict, result: StreamResult
     ) -> AsyncIterator[str]:
+        logger.debug('OpenAI stream started: model=%s', self._model)
         usage: TokenUsage | None = None
         async with self._client.stream('POST', '/chat/completions', json=body) as resp:
             resp.raise_for_status()
@@ -111,6 +126,12 @@ class OpenAICompatibleProvider(LLMProvider):
                         prompt_tokens=event['usage']['prompt_tokens'],
                         completion_tokens=event['usage']['completion_tokens'],
                     )
+        if usage:
+            logger.debug(
+                'OpenAI stream complete: prompt_tokens=%d completion_tokens=%d',
+                usage.prompt_tokens,
+                usage.completion_tokens,
+            )
         result.usage = usage
 
     async def close(self) -> None:
@@ -119,6 +140,8 @@ class OpenAICompatibleProvider(LLMProvider):
     async def test_connection(self) -> bool:
         try:
             resp = await self._client.get('/models')
-            return resp.status_code == 200
+            result = resp.status_code == 200
         except httpx.HTTPError:
-            return False
+            result = False
+        logger.debug('OpenAI connection test: %s', 'ok' if result else 'failed')
+        return result

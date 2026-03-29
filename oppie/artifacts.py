@@ -1,9 +1,12 @@
+import logging
 import tempfile
 from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
 
 from oppie.models import RunId
+
+logger = logging.getLogger(__name__)
 
 
 class ArtifactType(Enum):
@@ -54,6 +57,7 @@ class ArtifactStore:
             Path(tmp_path).unlink(missing_ok=True)
             raise
 
+        logger.debug('Saved %s artifact: %s', artifact_type.value, target)
         return target
 
     def list_artifacts(self, artifact_type: ArtifactType) -> list[Path]:
@@ -64,10 +68,13 @@ class ArtifactStore:
         subdir = self._artifacts_dir / _TYPE_DIRS[artifact_type]
         if not subdir.exists():
             return []
-        return sorted(subdir.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True)
+        result = sorted(subdir.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True)
+        logger.debug('Listed %d %s artifacts', len(result), artifact_type.value)
+        return result
 
     def read_artifact(self, path: Path) -> str:
         """Read and return the content of an artifact file."""
+        logger.debug('Reading artifact %s', path)
         if not path.exists():
             raise FileNotFoundError(f'Artifact not found: {path}')
         return path.read_text()

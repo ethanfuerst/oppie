@@ -1,4 +1,5 @@
 import json
+import logging
 import tempfile
 import uuid
 from dataclasses import dataclass, field
@@ -6,6 +7,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from oppie.models import PlanId, RunId, SessionId
+
+logger = logging.getLogger(__name__)
 
 MAX_RECENT_RUNS = 10
 
@@ -66,6 +69,7 @@ class Session:
             last_command_at=datetime.now(UTC).isoformat(),
         )
         session._save(data)
+        logger.debug('Created session %s', session_id)
         return session
 
     @classmethod
@@ -77,6 +81,7 @@ class Session:
         session = cls(home, session_id)
         if not session._session_path.exists():
             raise FileNotFoundError(f'Session not found: {session_id}')
+        logger.debug('Loaded session %s', session_id)
         return session
 
     @classmethod
@@ -100,6 +105,11 @@ class Session:
         # Extract session ID from filename: session-{uuid}.json
         filename = session_files[0].stem  # session-{uuid}
         session_id = filename[len('session-') :]
+        logger.debug(
+            'Found %d session files, latest=%s',
+            len(session_files),
+            session_id,
+        )
         return cls(home, session_id)
 
     def _load(self) -> SessionData:
@@ -110,6 +120,9 @@ class Session:
             data = json.loads(self._session_path.read_text())
             return SessionData.from_dict(data)
         except (json.JSONDecodeError, KeyError, ValueError):
+            logger.warning(
+                'Corrupt session file %s, using defaults', self._session_path
+            )
             return SessionData(session_id=self._session_id)
 
     def _save(self, data: SessionData) -> None:
@@ -135,6 +148,7 @@ class Session:
         data.active_plan_id = plan_id
         data.last_command_at = datetime.now(UTC).isoformat()
         self._save(data)
+        logger.debug('Session %s: active_plan=%s', self._session_id, plan_id)
 
     def get_recent_run_ids(self) -> list[RunId]:
         """Return the list of recent run IDs."""
@@ -147,6 +161,7 @@ class Session:
         data.recent_run_ids = data.recent_run_ids[-MAX_RECENT_RUNS:]
         data.last_command_at = datetime.now(UTC).isoformat()
         self._save(data)
+        logger.debug('Session %s: added run %s', self._session_id, run_id)
 
     def get_last_command_at(self) -> str | None:
         """Return the last_command_at timestamp, or None if never touched."""

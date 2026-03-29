@@ -59,7 +59,8 @@ Allowed types: `feat`, `fix`, `ci`, `chore`, `docs`, `refactor`, `test`
 
 - `oppie/models/` — Pure data models (Ticket, Plan, Operation, Apply, Drift, etc.). Each in its own file. No orchestration logic or I/O. `Plan.plan_id` is auto-computed in `__post_init__` from operations. `Plan.checked` tracks whether `check_apply()` has validated it (required before `execute_apply()`). `Plan.save(home)` handles atomic JSON persistence and index updates.
 - `oppie/providers/` — Storage backends. `base.py` defines `TicketProvider` ABC (with `home` property, `read_ticket`, `update_ticket`, `list_tickets`, `upsert_ticket`, `capabilities`, and concrete `validate_operations`) and `ExternalProvider` (adds `sync`/`apply`). Plan engine functions read `provider.home` instead of taking `home` as a parameter. Each provider is a package: `local/` has `provider.py` (`LocalProvider` with JSON+SQLite and `setup()` classmethod) and `__init__.py` re-exports. `linear/` has `config.py` (`LinearProviderConfig` with `to_dict()`), `provider.py` (`LinearProvider` with `setup()` classmethod for interactive init), `discovery.py` (standalone GraphQL functions for listing teams/projects during init), and `__init__.py` re-exports.
-- `oppie/cli/` — Click CLI package. `__init__.py` defines the Click group with `--home` flag and registers commands. `commands/` has one module per command area (`init.py`, `config_cmd.py`, `context.py`). `console.py` has shared Rich output helpers (`success`, `warn`, `error`, `info`). `extras.py` detects installed optional extras at runtime.
+- `oppie/logging.py` — `configure_logging(debug, home)` sets up stdlib logging. File output to `{home}/logs/oppie-{timestamp}.log` when an initialized instance exists, stderr fallback otherwise. `OPPIE_LOG_LEVEL` env var overrides `--debug`.
+- `oppie/cli/` — Click CLI package. `__init__.py` defines the Click group with `--home` and `--debug` flags and registers commands. `commands/` has one module per command area (`init.py`, `config_cmd.py`, `context.py`). `console.py` has shared Rich output helpers (`success`, `warn`, `error`, `info`). `extras.py` detects installed optional extras at runtime.
 - `oppie/config.py` — YAML config loading/saving, `OppieConfig` and `InstanceType` (local/remote). `save_oppie_config()` and `save_provider_credentials()` use atomic writes.
 - `oppie/instance.py` — Instance initialization and discovery. Creates the directory tree under a home dir with a `.oppie-marker` file.
 - `oppie/artifacts.py` — `ArtifactStore` for saving/reading/listing JSON artifacts (ask, plan, apply, report, context) under `artifacts/`.
@@ -80,6 +81,7 @@ Allowed types: `feat`, `fix`, `ci`, `chore`, `docs`, `refactor`, `test`
   artifacts/{ask,plans,applies,reports,context}/
   state/session-*.json # Per-session state files (UUID-keyed)
   logs/runs.jsonl      # Append-only run log
+  logs/oppie-*.log     # Per-invocation debug log files (created by --debug)
   artifacts/plans/.plan-index.jsonl  # JSONL index for plan keyword search
   context/{vision,roadmap,metrics,prioritization}.md  # Optional context docs
 ```
@@ -96,6 +98,13 @@ Allowed types: `feat`, `fix`, `ci`, `chore`, `docs`, `refactor`, `test`
 - Value-object dataclasses use `@dataclass(slots=True)` for memory efficiency and attribute-access speed.
 - Dataclasses mutated after `__init__` do **not** use `slots=True`: `Plan`, `Ticket`, `SessionData`.
 - When adding a new dataclass, use `slots=True` unless the class needs post-init mutation (e.g., `setattr`, field reassignment outside `__init__`).
+
+## Logging conventions
+
+- Every module that logs uses `logger = logging.getLogger(__name__)` at module level.
+- `configure_logging()` in `oppie/logging.py` is called once from the CLI callback. It checks whether `{home}/logs/` exists before writing file logs — avoids creating directories before `oppie init`.
+- Use `logger.info()` for high-level operations (plan generation, apply execution). Use `logger.debug()` for internal details (ticket counts, cache refreshes, GraphQL calls). Use `logger.warning()` for recoverable issues (corrupt session files).
+- Log format: `%(asctime)s %(name)s %(levelname)s %(message)s`. Use `%s`-style formatting (not f-strings) in log calls for lazy evaluation.
 
 ## Code style
 
