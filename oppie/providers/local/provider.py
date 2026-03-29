@@ -1,4 +1,5 @@
 import json
+import logging
 import sqlite3
 import tempfile
 from dataclasses import dataclass
@@ -7,6 +8,8 @@ from pathlib import Path
 from oppie.models.capabilities import ProviderCapabilities
 from oppie.models.ticket import Ticket
 from oppie.providers.base import TicketProvider
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -63,6 +66,7 @@ class LocalProvider(TicketProvider):
     def _open_db(self) -> sqlite3.Connection:
         conn = sqlite3.connect(str(self._db_path))
         conn.execute('PRAGMA journal_mode=WAL')
+        logger.debug('Opening SQLite database at %s', self._db_path)
         return conn
 
     def _ensure_schema(self) -> None:
@@ -89,6 +93,7 @@ class LocalProvider(TicketProvider):
             );
             CREATE INDEX IF NOT EXISTS idx_ticket_labels_label ON ticket_labels(label);
         """)
+        logger.debug('Schema ensured for %s', self._db_path)
 
     def _write_ticket_file(self, ticket: Ticket) -> None:
         target = self._tickets_dir / f'{ticket.id}.json'
@@ -139,14 +144,18 @@ class LocalProvider(TicketProvider):
             raise FileExistsError(f'Ticket already exists: {ticket.id}')
         self._write_ticket_file(ticket)
         self._index_ticket(ticket)
+        logger.debug('Created ticket %s', ticket.id)
         return ticket
 
     def read_ticket(self, ticket_id: str) -> Ticket | None:
         path = self._tickets_dir / f'{ticket_id}.json'
         if not path.exists():
-            return None
-        data = json.loads(path.read_text())
-        return Ticket.from_dict(data)
+            ticket = None
+        else:
+            data = json.loads(path.read_text())
+            ticket = Ticket.from_dict(data)
+        logger.debug('Read ticket %s (found=%s)', ticket_id, ticket is not None)
+        return ticket
 
     def update_ticket(self, ticket_id: str, updates: dict) -> Ticket:
         ticket = self.read_ticket(ticket_id)
@@ -160,6 +169,7 @@ class LocalProvider(TicketProvider):
             setattr(ticket, field_name, value)
         self._write_ticket_file(ticket)
         self._index_ticket(ticket)
+        logger.debug('Updated ticket %s fields=%s', ticket_id, list(updates.keys()))
         return ticket
 
     def delete_ticket(self, ticket_id: str) -> bool:
@@ -168,14 +178,17 @@ class LocalProvider(TicketProvider):
             return False
         path.unlink()
         self._remove_index(ticket_id)
+        logger.debug('Deleted ticket %s', ticket_id)
         return True
 
     def list_tickets(self, filters: TicketFilter | None = None) -> list[Ticket]:
         if filters is None:
-            return [
+            result = [
                 Ticket.from_dict(json.loads(path.read_text()))
                 for path in sorted(self._tickets_dir.glob('*.json'))
             ]
+            logger.debug('Listed %d tickets (filtered=%s)', len(result), False)
+            return result
 
         clauses: list[str] = []
         params: list[str] = []
@@ -199,11 +212,13 @@ class LocalProvider(TicketProvider):
         rows = self._conn.execute(query, params).fetchall()
         ticket_ids = [row[0] for row in rows]
 
-        return [
+        result = [
             ticket
             for ticket_id in ticket_ids
             if (ticket := self.read_ticket(ticket_id)) is not None
         ]
+        logger.debug('Listed %d tickets (filtered=%s)', len(result), True)
+        return result
 
     def search_tickets(self, query: str) -> list[Ticket]:
         pattern = f'%{query}%'
@@ -213,11 +228,13 @@ class LocalProvider(TicketProvider):
             (pattern, pattern),
         ).fetchall()
 
-        return [
+        result = [
             ticket
             for (ticket_id,) in rows
             if (ticket := self.read_ticket(ticket_id)) is not None
         ]
+        logger.debug('Search %r returned %d tickets', query, len(result))
+        return result
 
     def upsert_ticket(self, ticket: Ticket) -> Ticket:
         self._write_ticket_file(ticket)

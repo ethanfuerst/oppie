@@ -1,10 +1,13 @@
 import json
+import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
 
 from oppie import __version__
 from oppie.config import InstanceType, OppieConfig, load_config
+
+logger = logging.getLogger(__name__)
 
 MARKER_FILENAME = '.oppie-marker'
 
@@ -78,6 +81,7 @@ class Instance:
         Does NOT write oppie.yaml or provider.yaml — that is the job of
         `oppie init` (ETH-364).
         """
+        logger.info('Creating instance at %s (type=%s)', home, instance_type.value)
         if home.exists():
             raise FileExistsError(f'Instance already exists at {home}')
 
@@ -89,12 +93,14 @@ class Instance:
         # Write marker last — a partial init won't be discoverable
         marker = Marker(version=__version__, instance_type=instance_type)
         marker.write(home / MARKER_FILENAME)
+        logger.debug('Instance created with marker v%s', __version__)
 
         return cls(home=home, marker=marker, config=None)
 
     @classmethod
     def load(cls, home: Path) -> 'Instance':
         """Load an existing instance from its home directory."""
+        logger.debug('Loading instance from %s', home)
         if not home.is_dir():
             raise FileNotFoundError(f'Instance home not found: {home}')
 
@@ -105,6 +111,9 @@ class Instance:
         if (config_dir / 'oppie.yaml').exists():
             config = load_config(config_dir)
 
+        logger.debug(
+            'Instance loaded: v%s type=%s', marker.version, marker.instance_type.value
+        )
         return cls(home=home, marker=marker, config=config)
 
     @staticmethod
@@ -114,12 +123,18 @@ class Instance:
         Priority: explicit home > OPPIE_HOME env var > CWD walk.
         Returns the resolved .oppie/ directory path.
         """
+        logger.debug(
+            'Detecting instance (explicit=%s, env=%s)',
+            home is not None,
+            bool(os.environ.get('OPPIE_HOME')),
+        )
         if home is not None:
             resolved = home.resolve()
             if not (resolved / MARKER_FILENAME).exists():
                 raise FileNotFoundError(
                     f'No valid instance at {resolved} (missing {MARKER_FILENAME})'
                 )
+            logger.debug('Instance detected at %s', resolved)
             return resolved
 
         env_home = os.environ.get('OPPIE_HOME')
@@ -129,12 +144,14 @@ class Instance:
                 raise FileNotFoundError(
                     f'No valid instance at {resolved} (missing {MARKER_FILENAME})'
                 )
+            logger.debug('Instance detected at %s', resolved)
             return resolved
 
         current = Path.cwd()
         while True:
             candidate = current / '.oppie'
             if (candidate / MARKER_FILENAME).exists():
+                logger.debug('Instance detected at %s', candidate.resolve())
                 return candidate.resolve()
             parent = current.parent
             if parent == current:

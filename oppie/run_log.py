@@ -1,9 +1,12 @@
 import json
+import logging
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from oppie.models import RunId
+
+logger = logging.getLogger(__name__)
 
 
 def generate_run_id() -> RunId:
@@ -56,6 +59,9 @@ class RunLog:
 
     def append(self, entry: RunLogEntry) -> None:
         """Append a run log entry. Never overwrites existing entries."""
+        logger.debug(
+            'Run log append: run_id=%s command=%s', entry.run_id, entry.command
+        )
         line = json.dumps(entry.to_dict(), separators=(',', ':')) + '\n'
         with open(self._log_path, 'a') as f:
             f.write(line)
@@ -85,4 +91,10 @@ class RunLog:
         if limit is not None:
             entries = entries[-limit:]
 
+        logger.debug(
+            'Run log query: %d entries (command_type=%s, limit=%s)',
+            len(entries),
+            command_type,
+            limit,
+        )
         return entries

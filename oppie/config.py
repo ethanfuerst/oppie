@@ -1,3 +1,4 @@
+import logging
 import os
 import tempfile
 from enum import Enum
@@ -6,6 +7,8 @@ from typing import Any
 
 import yaml  # type: ignore[import-untyped]
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+logger = logging.getLogger(__name__)
 
 
 class InstanceType(Enum):
@@ -71,6 +74,7 @@ def resolve_api_key(config: ProviderConfig) -> str:
 
     Env var name is derived from provider type: e.g. LINEAR -> LINEAR_API_KEY.
     """
+    logger.debug('Resolving API key for %s', config.provider_type.value)
     if config.api_key:
         return config.api_key
     env_var = f'{config.provider_type.value.upper()}_API_KEY'
@@ -86,6 +90,7 @@ def resolve_api_key(config: ProviderConfig) -> str:
 def load_oppie_config(config_dir: Path) -> OppieConfig:
     """Load and validate oppie.yaml from the given config directory."""
     config_path = config_dir / 'oppie.yaml'
+    logger.debug('Loading config from %s', config_path)
     if not config_path.exists():
         raise FileNotFoundError(f'Config file not found: {config_path}')
 
@@ -104,12 +109,23 @@ def load_oppie_config(config_dir: Path) -> OppieConfig:
 
         data['provider'] = LinearProviderConfig(**provider_data)
 
-    return OppieConfig(**data)
+    config = OppieConfig(**data)
+    logger.debug(
+        'Config loaded: instance_type=%s provider=%s',
+        config.instance_type.value,
+        config.provider.provider_type.value,
+    )
+    return config
 
 
 def load_provider_credentials(config_dir: Path) -> dict[str, Any]:
     """Load provider.yaml credentials. Return empty dict if file missing or empty."""
     creds_path = config_dir / 'provider.yaml'
+    logger.debug(
+        'Loading provider credentials from %s (found=%s)',
+        creds_path,
+        creds_path.exists(),
+    )
     if not creds_path.exists():
         return {}
 
@@ -135,6 +151,7 @@ def save_oppie_config(config_dir: Path, config: OppieConfig) -> Path:
     """Write oppie.yaml to the config directory. Atomic write."""
     config_dir.mkdir(parents=True, exist_ok=True)
     target = config_dir / 'oppie.yaml'
+    logger.debug('Saving config to %s', target)
 
     data: dict[str, Any] = {
         'instance_type': config.instance_type.value,
@@ -168,6 +185,7 @@ def save_provider_credentials(config_dir: Path, credentials: dict[str, Any]) -> 
     """Write provider.yaml credentials. Atomic write."""
     config_dir.mkdir(parents=True, exist_ok=True)
     target = config_dir / 'provider.yaml'
+    logger.debug('Saving provider credentials to %s', target)
 
     fd, tmp = tempfile.mkstemp(dir=config_dir, suffix='.tmp')
     try:
