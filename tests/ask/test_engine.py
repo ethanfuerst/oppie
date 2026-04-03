@@ -91,14 +91,24 @@ async def test_generate_ask_with_llm(home, provider):
         llm=LLMConfig(backend=LLMBackend.OPENAI_COMPATIBLE, model='test'),
     )
 
-    mock_llm = AsyncMock()
-    mock_llm.generate = AsyncMock(
-        return_value=LLMResponse(
-            text='The answer is 42.',
-            json=None,
-            usage=TokenUsage(100, 50),
-        )
+    # Ask engine runs 2 steps: research (no tool calls) -> answer (text)
+    research_response = LLMResponse(
+        text='',
+        json=None,
+        usage=TokenUsage(80, 20),
+        tool_calls=[],
+        stop_reason='end_turn',
     )
+    answer_response = LLMResponse(
+        text='The answer is 42.',
+        json=None,
+        usage=TokenUsage(100, 50),
+        tool_calls=[],
+        stop_reason='end_turn',
+    )
+
+    mock_llm = AsyncMock()
+    mock_llm.generate = AsyncMock(side_effect=[research_response, answer_response])
     mock_llm.__aenter__ = AsyncMock(return_value=mock_llm)
     mock_llm.__aexit__ = AsyncMock(return_value=False)
 
@@ -107,4 +117,5 @@ async def test_generate_ask_with_llm(home, provider):
 
     assert result.answer == 'The answer is 42.'
     assert result.usage is not None
-    assert result.usage.prompt_tokens == 100
+    assert result.usage.prompt_tokens == 180
+    assert result.usage.completion_tokens == 70

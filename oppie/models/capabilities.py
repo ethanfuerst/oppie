@@ -41,6 +41,22 @@ class ProviderCapabilities:
             )
         return None
 
+    def validate_operation_value_raw(self, field: str, value: object) -> str | None:
+        """Return None if valid, error string if value is not allowed for field."""
+        if field not in self.supported_field_updates:
+            return (
+                f'Provider does not support updating field {field!r}. '
+                f'Supported fields: {self.supported_field_updates}'
+            )
+        if field not in self.field_constraints:
+            return None
+        allowed = self.field_constraints[field]
+        if allowed is None:
+            return None
+        if value not in allowed:
+            return f'Invalid value {value!r} for field {field!r}. Allowed: {allowed}'
+        return None
+
     def format_constraints_for_prompt(self) -> str:
         """Format field constraints as a text block for LLM prompts."""
         if not self.field_constraints:

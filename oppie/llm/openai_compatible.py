@@ -14,7 +14,13 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
 from oppie.llm._sse import parse_sse_events
-from oppie.llm.base import LLMProvider, LLMResponse, StreamResult, TokenUsage
+from oppie.llm.base import (
+    LLMProvider,
+    LLMResponse,
+    StreamResult,
+    TokenUsage,
+    ToolCallRequest,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -50,8 +56,11 @@ class OpenAICompatibleProvider(LLMProvider):
         self,
         messages: list[dict],
         response_schema: dict | None = None,
+        tools: list[dict] | None = None,
+        tool_choice: str | dict | None = None,
         max_tokens: int = 2000,
         temperature: float = 0.7,
+        system_parts: list[dict] | None = None,
     ) -> LLMResponse:
         logger.debug(
             'OpenAI generate: model=%s max_tokens=%d temp=%.1f',
@@ -70,10 +79,31 @@ class OpenAICompatibleProvider(LLMProvider):
                 'type': 'json_schema',
                 'json_schema': {'name': 'response', 'schema': response_schema},
             }
+        elif tools is not None:
+            body['tools'] = [
+                {
+                    'type': 'function',
+                    'function': {
+                        'name': t['name'],
+                        'description': t.get('description', ''),
+                        'parameters': t['parameters'],
+                    },
+                }
+                for t in tools
+            ]
+            if tool_choice is not None:
+                if tool_choice == 'any':
+                    body['tool_choice'] = 'required'
+                elif isinstance(tool_choice, dict) and 'name' in tool_choice:
+                    body['tool_choice'] = {
+                        'type': 'function',
+                        'function': {'name': tool_choice['name']},
+                    }
         resp = await self._client.post('/chat/completions', json=body)
         resp.raise_for_status()
         data = resp.json()
-        text = data['choices'][0]['message']['content']
+        message = data['choices'][0]['message']
+        text = message.get('content') or ''
         usage = TokenUsage(
             prompt_tokens=data['usage']['prompt_tokens'],
             completion_tokens=data['usage']['completion_tokens'],
@@ -86,7 +116,25 @@ class OpenAICompatibleProvider(LLMProvider):
         parsed_json = None
         if response_schema is not None:
             parsed_json = json.loads(text)
-        return LLMResponse(text=text, json=parsed_json, usage=usage)
+        tool_calls: list[ToolCallRequest] = []
+        raw_tool_calls = message.get('tool_calls')
+        if raw_tool_calls:
+            for tc in raw_tool_calls:
+                tool_calls.append(
+                    ToolCallRequest(
+                        id=tc['id'],
+                        name=tc['function']['name'],
+                        input=json.loads(tc['function']['arguments']),
+                    )
+                )
+        stop_reason = 'tool_use' if tool_calls else 'end_turn'
+        return LLMResponse(
+            text=text,
+            json=parsed_json,
+            usage=usage,
+            tool_calls=tool_calls,
+            stop_reason=stop_reason,
+        )
 
     async def stream(
         self,

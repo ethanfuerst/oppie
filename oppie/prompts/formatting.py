@@ -1,6 +1,7 @@
 import logging
 from pathlib import Path
 
+from oppie.models.plan import Plan
 from oppie.models.ticket import Ticket
 
 logger = logging.getLogger(__name__)
@@ -9,10 +10,7 @@ CONTEXT_DOC_NAMES = ('vision', 'roadmap', 'metrics', 'prioritization')
 
 
 def load_context(home: Path) -> dict[str, str]:
-    """Read optional context docs from {home}/context/.
-
-    Return a dict of filename stem -> content for each .md file that exists.
-    """
+    """Read optional context docs from {home}/context/."""
     context_dir = home / 'context'
     if not context_dir.is_dir():
         return {}
@@ -48,3 +46,17 @@ def format_context_for_llm(context: dict[str, str]) -> str:
     for name, content in context.items():
         parts.append(f'## {name.replace("_", " ").title()}\n{content}')
     return '\n\n'.join(parts)
+
+
+def format_past_plans(plans: list[Plan]) -> str:
+    """Format past similar plans as context for the LLM."""
+    if not plans:
+        return '(no similar past plans)'
+    parts = []
+    for p in plans:
+        ops_summary = '; '.join(
+            f'{op.ticket_id}.{op.field}: {op.before_value!r} -> {op.after_value!r}'
+            for op in p.operations
+        )
+        parts.append(f'- Plan {p.plan_id}: "{p.instruction}" -> [{ops_summary}]')
+    return '\n'.join(parts)

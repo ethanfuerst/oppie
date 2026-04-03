@@ -10,52 +10,24 @@ from pathlib import Path
 
 from oppie.artifacts import ArtifactStore, ArtifactType
 from oppie.config import OppieConfig
+from oppie.engine import EngineMode, run_engine
 from oppie.llm import LLMNotConfiguredError, create_llm_provider
 from oppie.models.apply import ApplyResult, OperationResult, OperationStatus
 from oppie.models.drift import DriftResolution, DriftResult, FieldDrift
 from oppie.models.operation import Operation
 from oppie.models.plan import PLAN_INDEX_FILENAME, Plan, PlanStatus
-from oppie.models.ticket import Ticket
-from oppie.prompt.helpers import (
-    format_context_for_llm,
+from oppie.prompts.builder import PromptMode, build_system_prompt, flatten_system_prompt
+from oppie.prompts.formatting import (
+    format_past_plans,
     format_tickets_for_llm,
-    load_context,
 )
 from oppie.providers.base import TicketProvider
 from oppie.run_log import RunLog, RunLogEntry, generate_run_id
+from oppie.tools.base import ToolContext
+from oppie.tools.operations import PROPOSE_OPERATION_TOOL
+from oppie.tools.tickets import GET_TICKET_TOOL, SEARCH_TICKETS_TOOL
 
 logger = logging.getLogger(__name__)
-
-PLAN_RESPONSE_SCHEMA: dict = {
-    'type': 'object',
-    'properties': {
-        'operations': {
-            'type': 'array',
-            'items': {
-                'type': 'object',
-                'properties': {
-                    'ticket_id': {'type': 'string'},
-                    'field': {'type': 'string'},
-                    'before_value': {},
-                    'after_value': {},
-                    'rationale': {'type': 'string'},
-                },
-                'required': [
-                    'ticket_id',
-                    'field',
-                    'before_value',
-                    'after_value',
-                    'rationale',
-                ],
-            },
-        },
-        'risks': {
-            'type': 'array',
-            'items': {'type': 'string'},
-        },
-    },
-    'required': ['operations', 'risks'],
-}
 
 _STATUS_KEYWORDS: dict[str, str] = {
     'close': 'done',
@@ -75,20 +47,6 @@ _PRIORITY_KEYWORDS: dict[str, str] = {
     'critical': 'high',
     'deprioritize': 'low',
 }
-
-_SYSTEM_PROMPT = """\
-You are oppie, a ticket operations bot that uses a plan/apply workflow.
-You receive a set of tickets and a user instruction, then generate a plan \
-consisting of explicit field-level operations on those tickets.
-
-Rules:
-- Each operation targets exactly one ticket and one field.
-- Include before_value (current) and after_value (proposed) for every operation.
-- Include a short rationale for each operation.
-- Identify risks or concerns with the proposed changes.
-- Only propose operations that are actionable — do not suggest vague changes.
-- If the instruction is ambiguous, propose the most conservative interpretation.\
-"""
 
 
 @dataclass(slots=True)
@@ -112,9 +70,6 @@ class PreApplyCheck:
         )
 
 
-MAX_RETRIES = 2
-
-
 async def generate_plan(
     provider: TicketProvider,
     config: OppieConfig | None,
@@ -122,35 +77,25 @@ async def generate_plan(
     *,
     save: bool = True,
 ) -> Plan:
-    """Generate a plan from a user instruction.
+    """Generate a plan from a user instruction using the agent loop.
 
     Pipeline:
     1. Load tickets from the provider.
-    2. Load context docs (vision, roadmap, etc.) if present.
-    3. Find similar past plans (up to 3) for few-shot context.
-    4. Build LLM prompt and call LLM with structured output.
-       - If no LLM configured, fall back to keyword matching.
-    5. Parse LLM response into Operation objects.
-    6. Validate operations and retry if errors (up to MAX_RETRIES).
-    7. Run preflight validation (capabilities + ticket existence).
-    8. Optionally save plan as JSON artifact.
+    2. Create LLM provider (fall back to keyword matching if none configured).
+    3. Build layered system prompt with context and constraints.
+    4. Run agent loop (research -> propose operations -> summary).
+    5. Run preflight validation (capabilities + ticket existence).
+    6. Optionally save plan as JSON artifact.
     """
     logger.info('Generating plan for instruction: %r', instruction)
     home = provider.home
 
-    # 1. Load tickets from the provider
+    # 1. Load tickets
     tickets = provider.list_tickets()
     ticket_snapshots = {t.id: t for t in tickets}
     logger.debug('Loaded %d tickets', len(tickets))
 
-    # 2. Load context docs (vision, roadmap, etc.) if present
-    context = load_context(home)
-
-    # 3. Find similar past plans (up to 3) for few-shot context
-    past_plans = _find_similar_plans(home, instruction)
-    logger.debug('Found %d similar past plans', len(past_plans))
-
-    # 4. Build LLM prompt and call LLM (fall back to keyword matching if no LLM)
+    # 2. Create LLM provider (fallback if none configured)
     try:
         llm_config = config.llm if config else None
         llm = create_llm_provider(llm_config)
@@ -166,72 +111,67 @@ async def generate_plan(
             plan.save(home)
         return plan
 
-    constraints_text = provider.capabilities.format_constraints_for_prompt()
-    messages = _build_prompt(
-        instruction, context, tickets, past_plans, constraints_text
+    # 3. Build layered system prompt
+    past_plans = _find_similar_plans(home, instruction)
+    past_plans_text = format_past_plans(past_plans)
+    system_parts = build_system_prompt(
+        mode=PromptMode.PLAN,
+        home=home,
+        capabilities=provider.capabilities,
+        past_plans_text=past_plans_text,
     )
+    system_prompt = flatten_system_prompt(system_parts)
+    system_parts_dicts = [
+        {
+            'content': p.content,
+            **({'cache_control': p.cache_control} if p.cache_control else {}),
+        }
+        for p in system_parts
+    ]
+
+    # Build user prompt with ticket summary
+    ticket_summary = format_tickets_for_llm(tickets)
+    user_prompt = (
+        f'# Current tickets\n{ticket_summary}\n\n# User instruction\n{instruction}'
+    )
+
+    # Set up tools and context
+    all_tools = [SEARCH_TICKETS_TOOL, GET_TICKET_TOOL, PROPOSE_OPERATION_TOOL]
+    tool_context = ToolContext(
+        provider=provider,
+        home=home,
+        capabilities=provider.capabilities,
+    )
+
     max_tokens = llm_config.max_tokens if llm_config else 2000
     temperature = llm_config.temperature if llm_config else 0.7
 
+    # 4. Run agent loop (research -> propose -> summary)
     async with llm:
-        response = await llm.generate(
-            messages=messages,
-            response_schema=PLAN_RESPONSE_SCHEMA,
+        result = await run_engine(
+            prompt=user_prompt,
+            tools=all_tools,
+            llm=llm,
+            tool_context=tool_context,
+            mode=EngineMode.PLAN,
+            system_prompt=system_prompt,
             max_tokens=max_tokens,
             temperature=temperature,
+            system_parts=system_parts_dicts,
         )
 
-        if response.json is None:
-            raise ValueError('LLM returned no structured output')
+    operations = result.operations
 
-        # 5. Parse LLM response into Operation objects
-        raw_ops = response.json.get('operations', [])
-        logger.debug('LLM returned %d operations', len(raw_ops))
-        operations = _parse_operations_from_json(raw_ops)
-        risks = response.json.get('risks', [])
-
-        # 6. Validate-and-retry loop
-        for attempt in range(MAX_RETRIES + 1):
-            errors = provider.validate_operations(operations)
-            if not errors:
-                break
-            if attempt == MAX_RETRIES:
-                logger.warning(
-                    'Plan validation failed after %d retries: %s', MAX_RETRIES, errors
-                )
-                break
-            logger.info(
-                'Plan validation errors (attempt %d), retrying: %s', attempt + 1, errors
-            )
-            messages.append({'role': 'assistant', 'content': response.text})
-            messages.append(
-                {
-                    'role': 'user',
-                    'content': (
-                        'The following operations have validation errors:\n'
-                        + '\n'.join(f'- {e}' for e in errors)
-                        + '\n\nPlease regenerate the plan fixing these errors.'
-                    ),
-                }
-            )
-            response = await llm.generate(
-                messages=messages,
-                response_schema=PLAN_RESPONSE_SCHEMA,
-                max_tokens=max_tokens,
-                temperature=temperature,
-            )
-            if response.json is None:
-                break
-            raw_ops = response.json.get('operations', [])
-            operations = _parse_operations_from_json(raw_ops)
-            risks = response.json.get('risks', risks)
-
-    # 7. Run preflight validation (capabilities + ticket existence)
+    # 5. Preflight validation
     preflight_errors = _run_preflight(provider, operations)
     status = PlanStatus.INVALID if preflight_errors else PlanStatus.SAVED
+    risks: list[str] = []
     if preflight_errors:
-        logger.debug('Preflight found %d errors', len(preflight_errors))
         risks.extend(preflight_errors)
+
+    # Extract risks from the final text (LLM summary)
+    if result.text:
+        risks.append(result.text)
 
     plan = Plan(
         instruction=instruction,
@@ -242,27 +182,13 @@ async def generate_plan(
         ticket_snapshots=ticket_snapshots,
     )
 
-    # 8. Optionally save plan as JSON artifact
+    # 6. Optionally save plan
     if save:
         plan.save(home)
         logger.info(
             'Plan %s saved with %d operations', plan.plan_id, len(plan.operations)
         )
     return plan
-
-
-def _parse_operations_from_json(raw_ops: list[dict]) -> list[Operation]:
-    """Parse raw JSON operations into Operation objects."""
-    return [
-        Operation(
-            ticket_id=op['ticket_id'],
-            field=op['field'],
-            before_value=op.get('before_value'),
-            after_value=op.get('after_value'),
-            rationale=op.get('rationale', ''),
-        )
-        for op in raw_ops
-    ]
 
 
 async def amend_plan(
@@ -793,55 +719,3 @@ def _resolve_operations(
         ):
             resolved.append(None)
     return resolved
-
-
-def _format_past_plans(plans: list[Plan]) -> str:
-    """Format past similar plans as context for the LLM."""
-    if not plans:
-        return '(no similar past plans)'
-    parts = []
-    for p in plans:
-        ops_summary = '; '.join(
-            f'{op.ticket_id}.{op.field}: {op.before_value!r} -> {op.after_value!r}'
-            for op in p.operations
-        )
-        parts.append(f'- Plan {p.plan_id}: "{p.instruction}" -> [{ops_summary}]')
-    return '\n'.join(parts)
-
-
-def _build_prompt(
-    instruction: str,
-    context: dict[str, str],
-    tickets: list[Ticket],
-    past_plans: list[Plan],
-    field_constraints_text: str = '',
-) -> list[dict]:
-    """Build OpenAI-format messages for plan generation."""
-    context_section = format_context_for_llm(context)
-    context_block = f'\n# Context\n{context_section}\n' if context_section else ''
-    constraints_block = (
-        f'\n# Field constraints\n{field_constraints_text}\n'
-        if field_constraints_text
-        else ''
-    )
-
-    user_content = f"""\
-{context_block}
-# Current tickets
-{format_tickets_for_llm(tickets)}
-
-# Past similar plans
-{_format_past_plans(past_plans)}
-{constraints_block}
-# User instruction
-{instruction}
-
-Generate a plan with explicit operations (ticket_id, field, before_value, \
-after_value, rationale) and a list of risks. Only use fields and values from \
-the constraints above.\
-"""
-
-    return [
-        {'role': 'system', 'content': _SYSTEM_PROMPT},
-        {'role': 'user', 'content': user_content},
-    ]

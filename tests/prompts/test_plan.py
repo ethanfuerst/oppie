@@ -1,13 +1,12 @@
 from oppie.models.operation import Operation
 from oppie.models.plan import Plan, PlanStatus
 from oppie.models.ticket import Ticket, TicketMetadata, TicketSource
-from oppie.plan.engine import (
-    _SYSTEM_PROMPT,
-    _build_prompt,
-    _format_past_plans,
-)
-from oppie.prompt.helpers import format_context_for_llm as _format_context
-from oppie.prompt.helpers import format_tickets_for_llm as _format_tickets
+from oppie.prompts.builder import PromptMode, build_system_prompt, flatten_system_prompt
+from oppie.prompts.formatting import format_context_for_llm as _format_context
+from oppie.prompts.formatting import format_past_plans as _format_past_plans
+from oppie.prompts.formatting import format_tickets_for_llm as _format_tickets
+from oppie.prompts.text.plan import PLAN_BASE_PROMPT
+from tests.helpers import setup_instance
 
 
 def _make_ticket(ticket_id='T-1', title='Fix bug', status='open', priority='high'):
@@ -26,40 +25,33 @@ def _make_ticket(ticket_id='T-1', title='Fix bug', status='open', priority='high
     )
 
 
-def test_build_prompt_returns_system_and_user_messages():
-    messages = _build_prompt('close all bugs', {}, [], [])
+def test_build_plan_prompt_includes_base(tmp_path):
+    home = setup_instance(tmp_path)
 
-    assert len(messages) == 2
-    assert messages[0]['role'] == 'system'
-    assert messages[1]['role'] == 'user'
+    parts = build_system_prompt(mode=PromptMode.PLAN, home=home)
 
-
-def test_build_prompt_system_message_is_system_prompt():
-    messages = _build_prompt('do something', {}, [], [])
-
-    assert messages[0]['content'] == _SYSTEM_PROMPT
+    flat = flatten_system_prompt(parts)
+    assert PLAN_BASE_PROMPT in flat
 
 
-def test_build_prompt_includes_instruction():
-    messages = _build_prompt('prioritize security work', {}, [], [])
+def test_build_plan_prompt_includes_instruction_context(tmp_path):
+    home = setup_instance(tmp_path)
 
-    assert 'prioritize security work' in messages[1]['content']
+    parts = build_system_prompt(mode=PromptMode.PLAN, home=home)
 
-
-def test_build_prompt_includes_tickets():
-    ticket = _make_ticket()
-    messages = _build_prompt('do something', {}, [ticket], [])
-
-    assert 'T-1' in messages[1]['content']
-    assert 'Fix bug' in messages[1]['content']
+    flat = flatten_system_prompt(parts)
+    assert 'Current date' in flat
 
 
-def test_build_prompt_includes_context():
-    context = {'vision': 'Be the best project tracker.'}
-    messages = _build_prompt('do something', context, [], [])
+def test_build_prompt_includes_context(tmp_path):
+    home = setup_instance(tmp_path)
+    (home / 'context' / 'vision.md').write_text('Be the best project tracker.')
 
-    assert 'Be the best project tracker.' in messages[1]['content']
-    assert 'Vision' in messages[1]['content']
+    parts = build_system_prompt(mode=PromptMode.PLAN, home=home)
+
+    flat = flatten_system_prompt(parts)
+    assert 'Be the best project tracker.' in flat
+    assert 'Vision' in flat
 
 
 def test_build_prompt_includes_past_plans():
@@ -72,10 +64,10 @@ def test_build_prompt_includes_past_plans():
         created_at='2026-01-01T00:00:00Z',
         status=PlanStatus.APPLIED,
     )
-    messages = _build_prompt('close all bugs', {}, [], [plan])
+    past_plans_text = _format_past_plans([plan])
 
-    assert plan.plan_id in messages[1]['content']
-    assert 'close bugs' in messages[1]['content']
+    assert plan.plan_id in past_plans_text
+    assert 'close bugs' in past_plans_text
 
 
 def test_format_tickets_empty():
