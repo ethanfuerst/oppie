@@ -105,10 +105,14 @@ def init(ctx: click.Context) -> None:
         )
     else:
         console.print('  LLM:            [dim]not configured[/dim]')
-    console.print('\n[bold]Next steps:[/bold]')
-    console.print('  oppie ask "..."    ask a question about your tickets')
-    console.print('  oppie plan "..."   create a plan')
-    console.print('  oppie report       generate a status report')
+    console.print('\n[bold]Next steps — just type what you want:[/bold]')
+    console.print('  [dim]"what\'s the status of the auth project?"[/dim]   (question)')
+    console.print(
+        '  [dim]"prioritize security work"[/dim]                 (instruction → plan)'
+    )
+    console.print(
+        '  [dim]report[/dim]                                     (status report)'
+    )
 
 
 def _prompt_llm_config() -> LLMConfig | None:
