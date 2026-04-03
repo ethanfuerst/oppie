@@ -16,13 +16,22 @@ class FieldDrift:
     field: str
     expected_value: Any
     current_value: Any
+    updated_at: str | None = None
+    updated_by: str | None = None
 
     def to_dict(self) -> dict:
         return dataclasses.asdict(self)
 
     @classmethod
     def from_dict(cls, data: dict) -> 'FieldDrift':
-        return cls(**data)
+        return cls(
+            ticket_id=data['ticket_id'],
+            field=data['field'],
+            expected_value=data['expected_value'],
+            current_value=data['current_value'],
+            updated_at=data.get('updated_at'),
+            updated_by=data.get('updated_by'),
+        )
 
 
 @dataclass(slots=True)

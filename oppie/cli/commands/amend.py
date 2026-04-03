@@ -3,12 +3,10 @@ import logging
 
 import click
 
-from oppie.cli.console import console, error, info, success, warn
+from oppie.cli.console import console, error, info, setup_provider, warn
 from oppie.models.plan import PlanStatus
 from oppie.plan import amend_plan, load_plan
-from oppie.providers.local import LocalProvider
 from oppie.session import Session
-from oppie.sync import auto_sync
 
 logger = logging.getLogger(__name__)
 
@@ -36,13 +34,7 @@ def amend(ctx: click.Context, plan_id: str) -> None:
         if not click.confirm('Continue?', default=False):
             raise SystemExit(0)
 
-    # Set up provider and sync
-    provider = LocalProvider.setup(home)
-    sync_result = auto_sync(provider, no_sync=no_sync)
-    if sync_result.synced:
-        success(
-            f'Synced ({sync_result.ticket_count} tickets, {sync_result.duration:.1f}s)'
-        )
+    provider, _ = setup_provider(home, no_sync=no_sync)
 
     # Amend
     info('Re-generating plan with current ticket state...')

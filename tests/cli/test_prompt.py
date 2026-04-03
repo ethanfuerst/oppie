@@ -22,12 +22,12 @@ def test_prompt_ambiguous():
         mock_instance_cls.detect.return_value = '/fake/home'
         mock_instance_cls.load.return_value = MagicMock(config=None)
 
-        with patch('oppie.cli.commands.prompt.LocalProvider') as mock_provider_cls:
+        with patch('oppie.providers.local.LocalProvider') as mock_provider_cls:
             mock_provider = MagicMock()
             mock_provider.list_tickets.return_value = []
             mock_provider_cls.setup.return_value = mock_provider
 
-            with patch('oppie.cli.commands.prompt.auto_sync') as mock_sync:
+            with patch('oppie.sync.auto_sync') as mock_sync:
                 mock_sync.return_value = MagicMock(
                     synced=False, error=None, ticket_count=0
                 )
