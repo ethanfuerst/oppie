@@ -32,7 +32,7 @@ def test_config_validate_no_instance(tmp_path):
     result = runner.invoke(cli, ['--home', str(home), 'config', 'validate'])
 
     assert result.exit_code != 0
-    assert 'NOT FOUND' in result.output or 'No valid instance' in result.output
+    assert 'No oppie instance' in result.output
 
 
 def test_config_validate_missing_config(tmp_path):

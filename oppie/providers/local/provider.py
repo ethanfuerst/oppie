@@ -61,6 +61,14 @@ class LocalProvider(TicketProvider):
             supports_write=True,
             supports_create=True,
             supported_field_updates=list(self._UPDATABLE_FIELDS),
+            field_constraints={
+                'status': ['open', 'in_progress', 'blocked', 'done'],
+                'priority': ['urgent', 'high', 'medium', 'low', 'none'],
+                'owner': None,
+                'labels': None,
+                'title': None,
+                'estimate': None,
+            },
         )
 
     def _open_db(self) -> sqlite3.Connection:

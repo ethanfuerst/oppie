@@ -4,10 +4,10 @@ from oppie.models.ticket import Ticket, TicketMetadata, TicketSource
 from oppie.plan.engine import (
     _SYSTEM_PROMPT,
     _build_prompt,
-    _format_context,
     _format_past_plans,
-    _format_tickets,
 )
+from oppie.prompt.helpers import format_context_for_llm as _format_context
+from oppie.prompt.helpers import format_tickets_for_llm as _format_tickets
 
 
 def _make_ticket(ticket_id='T-1', title='Fix bug', status='open', priority='high'):

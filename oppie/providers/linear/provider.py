@@ -305,6 +305,13 @@ class LinearProvider(ExternalProvider):
             supports_cycles=True,
             supports_custom_fields=False,
             supported_field_updates=LinearTicketSchema.updatable_fields(),
+            field_constraints={
+                'status': None,  # Resolved via workflow state lookup
+                'priority': ['urgent', 'high', 'medium', 'low', 'none'],
+                'owner': None,  # Resolved via member lookup
+                'labels': None,  # Resolved via label lookup
+                'estimate': None,  # Free-form
+            },
         )
 
     def read_ticket(self, ticket_id: str) -> Ticket | None:

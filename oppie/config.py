@@ -21,6 +21,11 @@ class ProviderType(Enum):
     LINEAR = 'linear'
 
 
+class IntentClassification(Enum):
+    LOCAL = 'local'
+    LLM = 'llm'
+
+
 class LLMBackend(Enum):
     OPENAI_COMPATIBLE = 'openai-compatible'
     ANTHROPIC = 'anthropic'
@@ -67,6 +72,7 @@ class OppieConfig(BaseModel):
     instance_type: InstanceType
     provider: ProviderConfig
     llm: LLMConfig | None = None
+    intent_classification: IntentClassification = IntentClassification.LOCAL
 
 
 def resolve_api_key(config: ProviderConfig) -> str:
@@ -168,6 +174,9 @@ def save_oppie_config(config_dir: Path, config: OppieConfig) -> Path:
             data['llm']['max_tokens'] = config.llm.max_tokens
         if config.llm.temperature != 0.7:
             data['llm']['temperature'] = config.llm.temperature
+
+    if config.intent_classification != IntentClassification.LOCAL:
+        data['intent_classification'] = config.intent_classification.value
 
     fd, tmp = tempfile.mkstemp(dir=config_dir, suffix='.tmp')
     try:

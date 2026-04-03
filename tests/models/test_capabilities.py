@@ -87,7 +87,91 @@ def test_capabilities_roundtrip():
         supports_cycles=True,
         supports_custom_fields=False,
         supported_field_updates=['status', 'priority', 'assignee'],
+        field_constraints={'status': ['open', 'done'], 'owner': None},
     )
     restored = ProviderCapabilities.from_dict(caps.to_dict())
 
     assert restored == caps
+
+
+def test_validate_operation_value_allowed():
+    caps = ProviderCapabilities(
+        supports_write=True,
+        supported_field_updates=['status'],
+        field_constraints={'status': ['open', 'done']},
+    )
+    op = Operation(
+        ticket_id='T-1',
+        field='status',
+        before_value='open',
+        after_value='done',
+        rationale='close it',
+    )
+
+    assert caps.validate_operation_value(op) is None
+
+
+def test_validate_operation_value_rejected():
+    caps = ProviderCapabilities(
+        supports_write=True,
+        supported_field_updates=['status'],
+        field_constraints={'status': ['open', 'done']},
+    )
+    op = Operation(
+        ticket_id='T-1',
+        field='status',
+        before_value='open',
+        after_value='banana',
+        rationale='oops',
+    )
+
+    result = caps.validate_operation_value(op)
+
+    assert 'banana' in result
+    assert 'Allowed' in result
+
+
+def test_validate_operation_value_freeform():
+    caps = ProviderCapabilities(
+        supports_write=True,
+        supported_field_updates=['owner'],
+        field_constraints={'owner': None},
+    )
+    op = Operation(
+        ticket_id='T-1',
+        field='owner',
+        before_value=None,
+        after_value='alice',
+        rationale='assign',
+    )
+
+    assert caps.validate_operation_value(op) is None
+
+
+def test_validate_operation_value_no_constraints():
+    caps = ProviderCapabilities(
+        supports_write=True,
+        supported_field_updates=['title'],
+    )
+    op = Operation(
+        ticket_id='T-1',
+        field='title',
+        before_value='old',
+        after_value='new',
+        rationale='rename',
+    )
+
+    assert caps.validate_operation_value(op) is None
+
+
+def test_format_constraints_for_prompt():
+    caps = ProviderCapabilities(
+        supports_write=True,
+        supported_field_updates=['status', 'owner'],
+        field_constraints={'status': ['open', 'done'], 'owner': None},
+    )
+
+    result = caps.format_constraints_for_prompt()
+
+    assert 'status: open, done' in result
+    assert 'owner: (free-form text)' in result
