@@ -1,4 +1,4 @@
-from oppie.prompt.helpers import (
+from oppie.prompts.formatting import (
     format_context_for_llm,
     format_tickets_for_llm,
     load_context,

@@ -4,11 +4,11 @@ from oppie.models.ticket import Ticket, TicketMetadata, TicketSource
 
 
 def make_ticket(
-    ticket_id, status='open', priority='medium', labels=None, owner='alice'
+    ticket_id, status='open', priority='medium', labels=None, owner='alice', title=None
 ):
     return Ticket(
         id=ticket_id,
-        title=f'Ticket {ticket_id}',
+        title=title or f'Ticket {ticket_id}',
         status=status,
         priority=priority,
         owner=owner,

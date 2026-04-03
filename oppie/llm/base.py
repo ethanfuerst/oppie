@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass(slots=True)
@@ -21,12 +21,38 @@ class TokenUsage:
             completion_tokens=data['completion_tokens'],
         )
 
+    def __add__(self, other: 'TokenUsage') -> 'TokenUsage':
+        return TokenUsage(
+            prompt_tokens=self.prompt_tokens + other.prompt_tokens,
+            completion_tokens=self.completion_tokens + other.completion_tokens,
+        )
+
+
+@dataclass(slots=True)
+class ToolCallRequest:
+    """A tool call requested by the LLM."""
+
+    id: str
+    name: str
+    input: dict
+
+
+@dataclass(slots=True)
+class ToolCallResult:
+    """Result of executing a tool call, sent back to the LLM."""
+
+    request: ToolCallRequest
+    content: str
+    is_error: bool = False
+
 
 @dataclass(slots=True)
 class LLMResponse:
     text: str
     json: dict | None
     usage: TokenUsage
+    tool_calls: list[ToolCallRequest] = field(default_factory=list)
+    stop_reason: str = 'end_turn'
 
     def to_dict(self) -> dict:
         return {
@@ -70,10 +96,23 @@ class LLMProvider(ABC):
         self,
         messages: list[dict],
         response_schema: dict | None = None,
+        tools: list[dict] | None = None,
+        tool_choice: str | dict | None = None,
         max_tokens: int = 2000,
         temperature: float = 0.7,
+        system_parts: list[dict] | None = None,
     ) -> LLMResponse:
-        """Send messages and return the full response."""
+        """Send messages and return the full response.
+
+        If tools is provided, the LLM may return tool_calls instead of text.
+        tool_choice controls forcing: None (auto), 'any' (must call a tool),
+        or {'name': 'tool_name'} (must call that specific tool).
+
+        system_parts, when provided, is a list of dicts with 'content' and
+        optional 'cache_control' keys. Providers that support structured
+        system prompts (e.g. Anthropic) use these instead of the flat
+        system string extracted from messages.
+        """
 
     @abstractmethod
     async def stream(

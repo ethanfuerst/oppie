@@ -81,6 +81,18 @@ class TicketProvider(ABC):
                 )
         return errors
 
+    def search_tickets(self, query: str) -> list[Ticket]:
+        """Search tickets by text query. Default: in-memory title+description match.
+
+        Subclasses may override with a more efficient implementation (e.g., SQLite FTS).
+        """
+        pattern = query.lower()
+        return [
+            t
+            for t in self.list_tickets()
+            if pattern in t.title.lower() or pattern in t.description.lower()
+        ]
+
 
 class ExternalProvider(TicketProvider, ABC):
     """Abstract base class for external ticket providers (Linear, Jira, etc)."""

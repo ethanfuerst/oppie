@@ -13,7 +13,13 @@ except ImportError:
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
-from oppie.llm.base import LLMProvider, LLMResponse, StreamResult, TokenUsage
+from oppie.llm.base import (
+    LLMProvider,
+    LLMResponse,
+    StreamResult,
+    TokenUsage,
+    ToolCallRequest,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -52,8 +58,11 @@ class AnthropicProvider(LLMProvider):
         self,
         messages: list[dict],
         response_schema: dict | None = None,
+        tools: list[dict] | None = None,
+        tool_choice: str | dict | None = None,
         max_tokens: int = 2000,
         temperature: float = 0.7,
+        system_parts: list[dict] | None = None,
     ) -> LLMResponse:
         logger.debug(
             'Anthropic generate: model=%s max_tokens=%d temp=%.1f',
@@ -61,14 +70,27 @@ class AnthropicProvider(LLMProvider):
             max_tokens,
             temperature,
         )
-        system, mapped_messages = _map_messages(messages)
+        system, mapped_messages = _map_to_anthropic_format(messages)
         body: dict[str, Any] = {
             'model': self._model,
             'messages': mapped_messages,
             'max_tokens': max_tokens,
             'temperature': temperature,
         }
-        if system:
+        if system_parts:
+            body['system'] = [
+                {
+                    'type': 'text',
+                    'text': part['content'],
+                    **(
+                        {'cache_control': part['cache_control']}
+                        if part.get('cache_control')
+                        else {}
+                    ),
+                }
+                for part in system_parts
+            ]
+        elif system:
             body['system'] = system
         if response_schema is not None:
             body['tools'] = [
@@ -79,6 +101,23 @@ class AnthropicProvider(LLMProvider):
                 }
             ]
             body['tool_choice'] = {'type': 'tool', 'name': 'structured_response'}
+        elif tools is not None:
+            body['tools'] = [
+                {
+                    'name': t['name'],
+                    'description': t.get('description', ''),
+                    'input_schema': t['parameters'],
+                }
+                for t in tools
+            ]
+            if tool_choice is not None:
+                if tool_choice == 'any':
+                    body['tool_choice'] = {'type': 'any'}
+                elif isinstance(tool_choice, dict) and 'name' in tool_choice:
+                    body['tool_choice'] = {
+                        'type': 'tool',
+                        'name': tool_choice['name'],
+                    }
         resp = await self._client.post('/v1/messages', json=body)
         resp.raise_for_status()
         data = resp.json()
@@ -91,14 +130,34 @@ class AnthropicProvider(LLMProvider):
             usage.prompt_tokens,
             usage.completion_tokens,
         )
+        stop_reason = data.get('stop_reason', 'end_turn')
         if response_schema is not None:
             tool_block = next(b for b in data['content'] if b['type'] == 'tool_use')
             parsed_json = tool_block['input']
             text = json.dumps(parsed_json)
-        else:
-            text = ''.join(b['text'] for b in data['content'] if b['type'] == 'text')
-            parsed_json = None
-        return LLMResponse(text=text, json=parsed_json, usage=usage)
+            return LLMResponse(text=text, json=parsed_json, usage=usage)
+        text_parts: list[str] = []
+        tool_calls: list[ToolCallRequest] = []
+        for block in data['content']:
+            if block['type'] == 'text':
+                text_parts.append(block['text'])
+            elif block['type'] == 'tool_use':
+                tool_calls.append(
+                    ToolCallRequest(
+                        id=block['id'],
+                        name=block['name'],
+                        input=block['input'],
+                    )
+                )
+        text = ''.join(text_parts)
+        parsed_json = None
+        return LLMResponse(
+            text=text,
+            json=parsed_json,
+            usage=usage,
+            tool_calls=tool_calls,
+            stop_reason=stop_reason,
+        )
 
     async def stream(
         self,
@@ -106,7 +165,7 @@ class AnthropicProvider(LLMProvider):
         max_tokens: int = 2000,
         temperature: float = 0.7,
     ) -> StreamResult:
-        system, mapped_messages = _map_messages(messages)
+        system, mapped_messages = _map_to_anthropic_format(messages)
         body: dict[str, Any] = {
             'model': self._model,
             'messages': mapped_messages,
@@ -176,13 +235,12 @@ class AnthropicProvider(LLMProvider):
         return result
 
 
-def _map_messages(
+def _map_to_anthropic_format(
     messages: list[dict],
 ) -> tuple[str | None, list[dict[str, Any]]]:
     """Map OpenAI-style messages to Anthropic format.
 
-    Extract system messages into a single string. Convert remaining
-    user/assistant messages to Anthropic's content block format.
+    Extract system messages. Convert user/assistant/tool messages.
     """
     system_parts: list[str] = []
     mapped: list[dict[str, Any]] = []
@@ -191,6 +249,35 @@ def _map_messages(
         content = msg['content']
         if role == 'system':
             system_parts.append(content)
+        elif role == 'tool_results':
+            mapped.append(
+                {
+                    'role': 'user',
+                    'content': [
+                        {
+                            'type': 'tool_result',
+                            'tool_use_id': r['tool_call_id'],
+                            'content': r['content'],
+                            'is_error': r.get('is_error', False),
+                        }
+                        for r in msg['results']
+                    ],
+                }
+            )
+        elif role == 'assistant' and 'tool_calls' in msg:
+            blocks: list[dict] = []
+            if content:
+                blocks.append({'type': 'text', 'text': content})
+            for tc in msg['tool_calls']:
+                blocks.append(
+                    {
+                        'type': 'tool_use',
+                        'id': tc['id'],
+                        'name': tc['name'],
+                        'input': tc['input'],
+                    }
+                )
+            mapped.append({'role': 'assistant', 'content': blocks})
         else:
             mapped.append({'role': role, 'content': content})
     system = '\n\n'.join(system_parts) if system_parts else None

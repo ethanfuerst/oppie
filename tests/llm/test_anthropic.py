@@ -2,36 +2,36 @@ import httpx
 import pytest
 import respx
 
-from oppie.llm.anthropic import AnthropicProvider, _map_messages
+from oppie.llm.anthropic import AnthropicProvider, _map_to_anthropic_format
 
 
-def test_map_messages_extracts_system():
+def test_map_to_anthropic_format_extracts_system():
     messages = [
         {'role': 'system', 'content': 'You are helpful.'},
         {'role': 'user', 'content': 'Hi'},
     ]
-    system, mapped = _map_messages(messages)
+    system, mapped = _map_to_anthropic_format(messages)
 
     assert system == 'You are helpful.'
     assert len(mapped) == 1
     assert mapped[0] == {'role': 'user', 'content': 'Hi'}
 
 
-def test_map_messages_no_system():
+def test_map_to_anthropic_format_no_system():
     messages = [{'role': 'user', 'content': 'Hi'}]
-    system, mapped = _map_messages(messages)
+    system, mapped = _map_to_anthropic_format(messages)
 
     assert system is None
     assert len(mapped) == 1
 
 
-def test_map_messages_multiple_system():
+def test_map_to_anthropic_format_multiple_system():
     messages = [
         {'role': 'system', 'content': 'First.'},
         {'role': 'system', 'content': 'Second.'},
         {'role': 'user', 'content': 'Hi'},
     ]
-    system, mapped = _map_messages(messages)
+    system, mapped = _map_to_anthropic_format(messages)
 
     assert system == 'First.\n\nSecond.'
     assert len(mapped) == 1
@@ -157,3 +157,85 @@ async def test_async_context_manager(provider):
         assert p is provider
 
     assert provider._client.is_closed
+
+
+@pytest.mark.asyncio
+async def test_generate_with_system_parts_sends_structured_blocks(provider):
+    """When system_parts is provided, Anthropic body uses structured system blocks."""
+    captured_body = {}
+
+    def capture_request(request):
+        import json as _json
+
+        captured_body.update(_json.loads(request.content))
+        return httpx.Response(
+            200,
+            json={
+                'content': [{'type': 'text', 'text': 'ok'}],
+                'usage': {'input_tokens': 10, 'output_tokens': 5},
+            },
+        )
+
+    with respx.mock:
+        respx.post('https://api.anthropic.com/v1/messages').mock(
+            side_effect=capture_request
+        )
+        await provider.generate(
+            messages=[
+                {'role': 'system', 'content': 'flat system'},
+                {'role': 'user', 'content': 'Hi'},
+            ],
+            system_parts=[
+                {'content': 'Base prompt.', 'cache_control': {'type': 'ephemeral'}},
+                {'content': 'Context docs.', 'cache_control': {'type': 'ephemeral'}},
+                {'content': 'Dynamic info.'},
+            ],
+        )
+
+    assert isinstance(captured_body['system'], list)
+    assert len(captured_body['system']) == 3
+    assert captured_body['system'][0] == {
+        'type': 'text',
+        'text': 'Base prompt.',
+        'cache_control': {'type': 'ephemeral'},
+    }
+    assert captured_body['system'][1] == {
+        'type': 'text',
+        'text': 'Context docs.',
+        'cache_control': {'type': 'ephemeral'},
+    }
+    assert captured_body['system'][2] == {
+        'type': 'text',
+        'text': 'Dynamic info.',
+    }
+
+
+@pytest.mark.asyncio
+async def test_generate_without_system_parts_uses_flat_string(provider):
+    """When system_parts is None, fall back to flat system string from messages."""
+    captured_body = {}
+
+    def capture_request(request):
+        import json as _json
+
+        captured_body.update(_json.loads(request.content))
+        return httpx.Response(
+            200,
+            json={
+                'content': [{'type': 'text', 'text': 'ok'}],
+                'usage': {'input_tokens': 10, 'output_tokens': 5},
+            },
+        )
+
+    with respx.mock:
+        respx.post('https://api.anthropic.com/v1/messages').mock(
+            side_effect=capture_request
+        )
+        await provider.generate(
+            messages=[
+                {'role': 'system', 'content': 'Be helpful.'},
+                {'role': 'user', 'content': 'Hi'},
+            ],
+        )
+
+    assert captured_body['system'] == 'Be helpful.'

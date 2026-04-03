@@ -8,24 +8,18 @@ from pathlib import Path
 
 from oppie.artifacts import ArtifactStore, ArtifactType
 from oppie.config import OppieConfig
+from oppie.engine import EngineMode, run_engine
 from oppie.llm import LLMNotConfiguredError, create_llm_provider
 from oppie.llm.base import TokenUsage
 from oppie.models.ticket import Ticket
-from oppie.prompt.helpers import (
-    format_context_for_llm,
-    format_tickets_for_llm,
-    load_context,
-)
+from oppie.prompts.builder import PromptMode, build_system_prompt, flatten_system_prompt
+from oppie.prompts.formatting import format_tickets_for_llm
 from oppie.providers.base import TicketProvider
 from oppie.run_log import RunLog, RunLogEntry, generate_run_id
+from oppie.tools.base import ToolContext
+from oppie.tools.tickets import GET_TICKET_TOOL, SEARCH_TICKETS_TOOL
 
 logger = logging.getLogger(__name__)
-
-_ASK_SYSTEM_PROMPT = """\
-You are oppie, a project management assistant. Answer the user's question \
-based on the ticket data and context provided. Be concise and reference \
-ticket IDs as evidence. If data is insufficient, say so.\
-"""
 
 # Keywords for fallback filtering
 _STATUS_KEYWORDS: dict[str, str] = {
@@ -62,20 +56,14 @@ async def generate_ask(
     config: OppieConfig | None,
     question: str,
 ) -> AskResult:
-    """Answer a question about tickets.
-
-    Pipeline:
-    1. Load tickets and context.
-    2. Try LLM-powered answer; fall back to keyword-based template.
-    3. Save ask artifact and run log entry.
-    """
+    """Answer a question about tickets using the agent loop."""
     logger.info('Generating ask for question: %r', question)
     home = provider.home
     start = time.monotonic()
 
     tickets = provider.list_tickets()
-    context = load_context(home)
 
+    # Fallback path (no LLM)
     try:
         llm_config = config.llm if config else None
         llm = create_llm_provider(llm_config)
@@ -94,52 +82,57 @@ async def generate_ask(
             usage=None,
         )
 
-    messages = _build_ask_prompt(question, context, tickets)
+    # Build layered system prompt
+    system_parts = build_system_prompt(mode=PromptMode.ASK, home=home)
+    system_prompt = flatten_system_prompt(system_parts)
+    system_parts_dicts = [
+        {
+            'content': p.content,
+            **({'cache_control': p.cache_control} if p.cache_control else {}),
+        }
+        for p in system_parts
+    ]
+
+    # Build user prompt with ticket summary
+    ticket_summary = format_tickets_for_llm(tickets)
+    user_prompt = f'# Current tickets\n{ticket_summary}\n\n# Question\n{question}'
+
+    # Set up tools and context
+    all_tools = [SEARCH_TICKETS_TOOL, GET_TICKET_TOOL]
+    tool_context = ToolContext(
+        provider=provider,
+        home=home,
+        capabilities=provider.capabilities,
+    )
+
+    max_tokens = llm_config.max_tokens if llm_config else 2000
+    temperature = llm_config.temperature if llm_config else 0.7
 
     async with llm:
-        response = await llm.generate(
-            messages=messages,
-            max_tokens=llm_config.max_tokens if llm_config else 2000,
-            temperature=llm_config.temperature if llm_config else 0.7,
+        result = await run_engine(
+            prompt=user_prompt,
+            tools=all_tools,
+            llm=llm,
+            tool_context=tool_context,
+            mode=EngineMode.ASK,
+            system_prompt=system_prompt,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            system_parts=system_parts_dicts,
         )
 
     duration = time.monotonic() - start
     run_id = generate_run_id()
-    artifact_path = _save_ask_artifact(home, question, response.text, run_id)
-    _append_run_log(home, run_id, duration, artifact_path, response.usage)
+    artifact_path = _save_ask_artifact(home, question, result.text, run_id)
+    _append_run_log(home, run_id, duration, artifact_path, result.usage)
 
     return AskResult(
-        answer=response.text,
+        answer=result.text,
         artifact_path=artifact_path,
         run_id=run_id,
         duration=duration,
-        usage=response.usage,
+        usage=result.usage,
     )
-
-
-def _build_ask_prompt(
-    question: str,
-    context: dict[str, str],
-    tickets: list[Ticket],
-) -> list[dict]:
-    """Build OpenAI-format messages for ask."""
-    context_section = format_context_for_llm(context)
-    context_block = f'\n# Context\n{context_section}\n' if context_section else ''
-
-    user_content = f"""\
-{context_block}
-# Current tickets
-{format_tickets_for_llm(tickets)}
-
-# Question
-{question}
-
-Provide a clear, concise answer with ticket IDs as evidence.\
-"""
-    return [
-        {'role': 'system', 'content': _ASK_SYSTEM_PROMPT},
-        {'role': 'user', 'content': user_content},
-    ]
 
 
 def _generate_fallback(tickets: list[Ticket], question: str) -> str:

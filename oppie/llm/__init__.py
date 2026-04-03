@@ -8,6 +8,8 @@ from oppie.llm.base import (
     LLMResponse,
     StreamResult,
     TokenUsage,
+    ToolCallRequest,
+    ToolCallResult,
 )
 
 if TYPE_CHECKING:
@@ -56,5 +58,7 @@ __all__ = [
     'LLMResponse',
     'StreamResult',
     'TokenUsage',
+    'ToolCallRequest',
+    'ToolCallResult',
     'create_llm_provider',
 ]

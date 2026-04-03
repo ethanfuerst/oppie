@@ -8,6 +8,7 @@ from oppie.models.operation import Operation
 from oppie.models.sync import SyncResult
 from oppie.models.ticket import Ticket
 from oppie.providers.base import ExternalProvider
+from tests.helpers import make_ticket
 
 
 def test_external_provider_cannot_be_instantiated():
@@ -48,3 +49,13 @@ def test_concrete_provider_implements_interface(tmp_path):
 
     assert provider.version == 'v1'
     assert provider.capabilities.supports_sync is True
+
+
+def test_search_tickets_default_filters_by_title(home, provider):
+    provider.create_ticket(make_ticket(ticket_id='T-1', title='Fix login bug'))
+    provider.create_ticket(make_ticket(ticket_id='T-2', title='Add dashboard'))
+
+    results = provider.search_tickets('login')
+
+    assert len(results) == 1
+    assert results[0].id == 'T-1'
