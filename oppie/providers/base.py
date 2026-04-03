@@ -64,6 +64,10 @@ class TicketProvider(ABC):
                 errors.append(f'[{op.ticket_id}.{op.field}] {cap_error}')
                 continue
 
+            value_error = self.capabilities.validate_operation_value(op)
+            if value_error:
+                errors.append(f'[{op.ticket_id}.{op.field}] {value_error}')
+
             ticket = self.read_ticket(op.ticket_id)
             if ticket is None:
                 errors.append(

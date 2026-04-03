@@ -1,4 +1,4 @@
-from oppie.plan.engine import _load_context
+from oppie.prompt.helpers import load_context as _load_context
 from oppie.providers.local import LocalProvider
 from tests.helpers import setup_instance
 

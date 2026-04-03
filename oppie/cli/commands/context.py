@@ -1,10 +1,8 @@
 from datetime import UTC, datetime
-from pathlib import Path
 
 import click
 
 from oppie.artifacts import ArtifactStore, ArtifactType
-from oppie.instance import Instance
 from oppie.run_log import generate_run_id
 
 CONTEXT_DOCS = ('vision', 'roadmap', 'metrics', 'prioritization')
@@ -20,7 +18,7 @@ def context() -> None:
 @click.pass_context
 def show(ctx: click.Context, doc: str | None) -> None:
     """Show context documents. Optionally specify a document name."""
-    home = _resolve_home(ctx)
+    home = ctx.obj['resolved_home']
     context_dir = home / 'context'
 
     if doc:
@@ -50,7 +48,7 @@ def show(ctx: click.Context, doc: str | None) -> None:
 @click.pass_context
 def edit(ctx: click.Context, doc: str) -> None:
     """Edit a context document."""
-    home = _resolve_home(ctx)
+    home = ctx.obj['resolved_home']
     context_dir = home / 'context'
     path = context_dir / f'{doc}.md'
 
@@ -79,7 +77,7 @@ def edit(ctx: click.Context, doc: str) -> None:
 @click.pass_context
 def validate_cmd(ctx: click.Context) -> None:
     """Validate context documents."""
-    home = _resolve_home(ctx)
+    home = ctx.obj['resolved_home']
     context_dir = home / 'context'
 
     click.echo('Validating context documents...\n')
@@ -95,9 +93,3 @@ def validate_cmd(ctx: click.Context) -> None:
             click.echo(f'  {name + ".md":<25s} not configured (optional)')
 
     click.echo('\nContext is valid.')
-
-
-def _resolve_home(ctx: click.Context) -> Path:
-    """Resolve instance home from context or auto-detection."""
-    home_override = ctx.obj.get('home')
-    return Instance.detect(home_override)

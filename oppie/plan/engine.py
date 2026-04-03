@@ -16,6 +16,11 @@ from oppie.models.drift import DriftResolution, DriftResult, FieldDrift
 from oppie.models.operation import Operation
 from oppie.models.plan import PLAN_INDEX_FILENAME, Plan, PlanStatus
 from oppie.models.ticket import Ticket
+from oppie.prompt.helpers import (
+    format_context_for_llm,
+    format_tickets_for_llm,
+    load_context,
+)
 from oppie.providers.base import TicketProvider
 from oppie.run_log import RunLog, RunLogEntry, generate_run_id
 
@@ -107,10 +112,15 @@ class PreApplyCheck:
         )
 
 
+MAX_RETRIES = 2
+
+
 async def generate_plan(
     provider: TicketProvider,
     config: OppieConfig | None,
     instruction: str,
+    *,
+    save: bool = True,
 ) -> Plan:
     """Generate a plan from a user instruction.
 
@@ -121,8 +131,9 @@ async def generate_plan(
     4. Build LLM prompt and call LLM with structured output.
        - If no LLM configured, fall back to keyword matching.
     5. Parse LLM response into Operation objects.
-    6. Run preflight validation (capabilities + ticket existence).
-    7. Save plan as JSON artifact.
+    6. Validate operations and retry if errors (up to MAX_RETRIES).
+    7. Run preflight validation (capabilities + ticket existence).
+    8. Optionally save plan as JSON artifact.
     """
     logger.info('Generating plan for instruction: %r', instruction)
     home = provider.home
@@ -133,7 +144,7 @@ async def generate_plan(
     logger.debug('Loaded %d tickets', len(tickets))
 
     # 2. Load context docs (vision, roadmap, etc.) if present
-    context = _load_context(home)
+    context = load_context(home)
 
     # 3. Find similar past plans (up to 3) for few-shot context
     past_plans = _find_similar_plans(home, instruction)
@@ -151,39 +162,71 @@ async def generate_plan(
             plan.status = PlanStatus.INVALID
             plan.risks.extend(preflight_errors)
         plan.ticket_snapshots = ticket_snapshots
-        # 7. Save plan as JSON artifact
-        plan.save(home)
+        if save:
+            plan.save(home)
         return plan
 
-    messages = _build_prompt(instruction, context, tickets, past_plans)
+    constraints_text = provider.capabilities.format_constraints_for_prompt()
+    messages = _build_prompt(
+        instruction, context, tickets, past_plans, constraints_text
+    )
+    max_tokens = llm_config.max_tokens if llm_config else 2000
+    temperature = llm_config.temperature if llm_config else 0.7
 
     async with llm:
         response = await llm.generate(
             messages=messages,
             response_schema=PLAN_RESPONSE_SCHEMA,
-            max_tokens=llm_config.max_tokens if llm_config else 2000,
-            temperature=llm_config.temperature if llm_config else 0.7,
+            max_tokens=max_tokens,
+            temperature=temperature,
         )
 
-    if response.json is None:
-        raise ValueError('LLM returned no structured output')
+        if response.json is None:
+            raise ValueError('LLM returned no structured output')
 
-    # 5. Parse LLM response into Operation objects
-    raw_ops = response.json.get('operations', [])
-    logger.debug('LLM returned %d operations', len(raw_ops))
-    operations = [
-        Operation(
-            ticket_id=op['ticket_id'],
-            field=op['field'],
-            before_value=op.get('before_value'),
-            after_value=op.get('after_value'),
-            rationale=op.get('rationale', ''),
-        )
-        for op in raw_ops
-    ]
-    risks = response.json.get('risks', [])
+        # 5. Parse LLM response into Operation objects
+        raw_ops = response.json.get('operations', [])
+        logger.debug('LLM returned %d operations', len(raw_ops))
+        operations = _parse_operations_from_json(raw_ops)
+        risks = response.json.get('risks', [])
 
-    # 6. Run preflight validation (capabilities + ticket existence)
+        # 6. Validate-and-retry loop
+        for attempt in range(MAX_RETRIES + 1):
+            errors = provider.validate_operations(operations)
+            if not errors:
+                break
+            if attempt == MAX_RETRIES:
+                logger.warning(
+                    'Plan validation failed after %d retries: %s', MAX_RETRIES, errors
+                )
+                break
+            logger.info(
+                'Plan validation errors (attempt %d), retrying: %s', attempt + 1, errors
+            )
+            messages.append({'role': 'assistant', 'content': response.text})
+            messages.append(
+                {
+                    'role': 'user',
+                    'content': (
+                        'The following operations have validation errors:\n'
+                        + '\n'.join(f'- {e}' for e in errors)
+                        + '\n\nPlease regenerate the plan fixing these errors.'
+                    ),
+                }
+            )
+            response = await llm.generate(
+                messages=messages,
+                response_schema=PLAN_RESPONSE_SCHEMA,
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
+            if response.json is None:
+                break
+            raw_ops = response.json.get('operations', [])
+            operations = _parse_operations_from_json(raw_ops)
+            risks = response.json.get('risks', risks)
+
+    # 7. Run preflight validation (capabilities + ticket existence)
     preflight_errors = _run_preflight(provider, operations)
     status = PlanStatus.INVALID if preflight_errors else PlanStatus.SAVED
     if preflight_errors:
@@ -199,10 +242,27 @@ async def generate_plan(
         ticket_snapshots=ticket_snapshots,
     )
 
-    # 7. Save plan as JSON artifact
-    plan.save(home)
-    logger.info('Plan %s saved with %d operations', plan.plan_id, len(plan.operations))
+    # 8. Optionally save plan as JSON artifact
+    if save:
+        plan.save(home)
+        logger.info(
+            'Plan %s saved with %d operations', plan.plan_id, len(plan.operations)
+        )
     return plan
+
+
+def _parse_operations_from_json(raw_ops: list[dict]) -> list[Operation]:
+    """Parse raw JSON operations into Operation objects."""
+    return [
+        Operation(
+            ticket_id=op['ticket_id'],
+            field=op['field'],
+            before_value=op.get('before_value'),
+            after_value=op.get('after_value'),
+            rationale=op.get('rationale', ''),
+        )
+        for op in raw_ops
+    ]
 
 
 async def amend_plan(
@@ -553,25 +613,6 @@ def _run_preflight(provider: TicketProvider, operations: list[Operation]) -> lis
     return errors
 
 
-def _load_context(home: Path) -> dict[str, str]:
-    """Read optional context docs from {home}/context/.
-
-    Return a dict of filename stem -> content for each .md file that exists.
-    Known files: vision.md, roadmap.md, metrics.md, prioritization.md.
-    """
-    context_dir = home / 'context'
-    if not context_dir.is_dir():
-        return {}
-    context = {}
-    for name in ('vision', 'roadmap', 'metrics', 'prioritization'):
-        path = context_dir / f'{name}.md'
-        if path.exists():
-            content = path.read_text().strip()
-            if content:
-                context[name] = content
-    return context
-
-
 def _find_similar_plans(
     home: Path,
     instruction: str,
@@ -754,20 +795,6 @@ def _resolve_operations(
     return resolved
 
 
-def _format_tickets(tickets: list[Ticket]) -> str:
-    """Format tickets as a compact text block for the LLM prompt."""
-    if not tickets:
-        return '(no tickets)'
-    lines = []
-    for t in tickets:
-        labels = ', '.join(t.labels) if t.labels else 'none'
-        lines.append(
-            f'- [{t.id}] {t.title} | status={t.status} priority={t.priority} '
-            f'owner={t.owner or "unassigned"} labels={labels}'
-        )
-    return '\n'.join(lines)
-
-
 def _format_past_plans(plans: list[Plan]) -> str:
     """Format past similar plans as context for the LLM."""
     if not plans:
@@ -782,39 +809,36 @@ def _format_past_plans(plans: list[Plan]) -> str:
     return '\n'.join(parts)
 
 
-def _format_context(context: dict[str, str]) -> str:
-    """Format context docs (vision, roadmap, etc.) for the prompt."""
-    if not context:
-        return ''
-    parts = []
-    for name, content in context.items():
-        parts.append(f'## {name.replace("_", " ").title()}\n{content}')
-    return '\n\n'.join(parts)
-
-
 def _build_prompt(
     instruction: str,
     context: dict[str, str],
     tickets: list[Ticket],
     past_plans: list[Plan],
+    field_constraints_text: str = '',
 ) -> list[dict]:
     """Build OpenAI-format messages for plan generation."""
-    context_section = _format_context(context)
+    context_section = format_context_for_llm(context)
     context_block = f'\n# Context\n{context_section}\n' if context_section else ''
+    constraints_block = (
+        f'\n# Field constraints\n{field_constraints_text}\n'
+        if field_constraints_text
+        else ''
+    )
 
     user_content = f"""\
 {context_block}
 # Current tickets
-{_format_tickets(tickets)}
+{format_tickets_for_llm(tickets)}
 
 # Past similar plans
 {_format_past_plans(past_plans)}
-
+{constraints_block}
 # User instruction
 {instruction}
 
 Generate a plan with explicit operations (ticket_id, field, before_value, \
-after_value, rationale) and a list of risks.\
+after_value, rationale) and a list of risks. Only use fields and values from \
+the constraints above.\
 """
 
     return [

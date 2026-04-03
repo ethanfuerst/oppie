@@ -14,6 +14,7 @@ class ProviderCapabilities:
     supports_cycles: bool = False
     supports_custom_fields: bool = False
     supported_field_updates: list[str] = field(default_factory=list)
+    field_constraints: dict[str, list[str] | None] = field(default_factory=dict)
 
     def validate_operation(self, op: Operation) -> str | None:
         """Return None if valid, error string if operation not supported."""
@@ -26,6 +27,32 @@ class ProviderCapabilities:
             )
         return None
 
+    def validate_operation_value(self, op: Operation) -> str | None:
+        """Return None if valid, error string if after_value is not allowed."""
+        if op.field not in self.field_constraints:
+            return None  # No constraints defined — allow any value
+        allowed = self.field_constraints[op.field]
+        if allowed is None:
+            return None  # Free-form field
+        if op.after_value not in allowed:
+            return (
+                f'Invalid value {op.after_value!r} for field {op.field!r}. '
+                f'Allowed: {allowed}'
+            )
+        return None
+
+    def format_constraints_for_prompt(self) -> str:
+        """Format field constraints as a text block for LLM prompts."""
+        if not self.field_constraints:
+            return ''
+        lines = ['Valid fields and allowed values:']
+        for field_name, allowed in sorted(self.field_constraints.items()):
+            if allowed is None:
+                lines.append(f'  - {field_name}: (free-form text)')
+            else:
+                lines.append(f'  - {field_name}: {", ".join(allowed)}')
+        return '\n'.join(lines)
+
     def to_dict(self) -> dict:
         return {
             'supports_sync': self.supports_sync,
@@ -37,6 +64,7 @@ class ProviderCapabilities:
             'supports_cycles': self.supports_cycles,
             'supports_custom_fields': self.supports_custom_fields,
             'supported_field_updates': list(self.supported_field_updates),
+            'field_constraints': dict(self.field_constraints),
         }
 
     @classmethod

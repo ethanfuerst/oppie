@@ -5,7 +5,6 @@ import click
 from oppie.cli.console import console, info, success
 from oppie.cli.extras import extras_available
 from oppie.config import ProviderType
-from oppie.instance import Instance
 from oppie.llm import create_llm_provider
 
 
@@ -18,17 +17,11 @@ def config() -> None:
 @click.pass_context
 def validate(ctx: click.Context) -> None:
     """Validate instance configuration."""
-    home_override = ctx.obj.get('home')
+    home = ctx.obj['resolved_home']
 
     info('Validating configuration...\n')
 
-    # Instance home
-    try:
-        home = Instance.detect(home_override)
-        _print_check('Instance home', str(home), 'ok')
-    except FileNotFoundError as e:
-        _print_check('Instance home', '', 'NOT FOUND')
-        raise click.ClickException(str(e)) from None
+    _print_check('Instance home', str(home), 'ok')
 
     # Config file
     config_path = home / 'config' / 'oppie.yaml'
@@ -41,16 +34,11 @@ def validate(ctx: click.Context) -> None:
         )
 
     # Load and validate config
-    try:
-        instance = Instance.load(home)
-        config = instance.config
-    except Exception as e:
-        _print_check('Config validation', '', 'INVALID')
-        raise click.ClickException(f'Config error: {e}') from None
-    _print_check('Config validation', '', 'ok')
-
+    config = ctx.obj.get('config')
     if config is None:
+        _print_check('Config validation', '', 'INVALID')
         raise click.ClickException('Config loaded but is None.')
+    _print_check('Config validation', '', 'ok')
 
     # Provider config
     provider_yaml = home / 'config' / 'provider.yaml'
