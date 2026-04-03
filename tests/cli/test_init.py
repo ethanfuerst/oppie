@@ -80,6 +80,22 @@ def test_init_with_context_docs(tmp_path):
     assert (context_dir / 'prioritization.md').exists()
 
 
+def test_init_shows_unified_prompt_examples(tmp_path):
+    home = tmp_path / '.oppie'
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        ['--home', str(home), 'init'],
+        input='1\n1\n3\nn\n',
+    )
+
+    assert result.exit_code == 0, result.output
+    assert 'just type what you want' in result.output
+    assert 'question' in result.output
+    assert 'instruction' in result.output
+    assert 'status report' in result.output
+
+
 def test_init_linear_provider(tmp_path, monkeypatch):
     home = tmp_path / '.oppie'
     from unittest.mock import MagicMock, patch
