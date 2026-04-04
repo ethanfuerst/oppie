@@ -97,6 +97,7 @@ def cli(
 
 # Late imports: commands must be imported after cli group is defined
 from oppie.cli.commands.amend import amend  # noqa: E402
+from oppie.cli.commands.apply import apply  # noqa: E402
 from oppie.cli.commands.config_cmd import config  # noqa: E402
 from oppie.cli.commands.context import context  # noqa: E402
 from oppie.cli.commands.init import init  # noqa: E402
@@ -106,3 +107,4 @@ cli.add_command(init)
 cli.add_command(config)
 cli.add_command(context)
 cli.add_command(amend)
+cli.add_command(apply)

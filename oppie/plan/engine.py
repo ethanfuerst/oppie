@@ -478,6 +478,7 @@ def _check_drift(provider: TicketProvider, plan: Plan) -> DriftResult:
                         field=op.field,
                         expected_value=op.before_value,
                         current_value=getattr(ticket, op.field),
+                        updated_at=ticket.updated_at,
                     )
                 )
 
@@ -504,6 +505,7 @@ def _check_drift(provider: TicketProvider, plan: Plan) -> DriftResult:
                             field=field_name,
                             expected_value=snapshot_dict.get(field_name),
                             current_value=ticket_dict.get(field_name),
+                            updated_at=ticket.updated_at,
                         )
                     )
 

@@ -4,13 +4,11 @@ import logging
 import click
 
 from oppie.ask import generate_ask
-from oppie.cli.console import console, error, info, success, warn
+from oppie.cli.console import console, error, info, setup_provider
 from oppie.config import IntentClassification
 from oppie.intent import Intent, classify_intent, classify_intent_llm
 from oppie.llm import LLMNotConfiguredError, create_llm_provider
-from oppie.providers.local import LocalProvider
 from oppie.session import Session
-from oppie.sync import auto_sync
 
 logger = logging.getLogger(__name__)
 
@@ -24,22 +22,9 @@ def handle_prompt(ctx: click.Context, prompt: str) -> None:
     config = ctx.obj['config']
     no_sync = ctx.obj.get('no_sync', False)
 
-    provider = LocalProvider.setup(home)
+    provider, _ = setup_provider(home, no_sync=no_sync)
 
-    # 3. Auto-sync
-    sync_result = auto_sync(provider, no_sync=no_sync)
-    if sync_result.synced:
-        success(
-            f'Synced ({sync_result.ticket_count} tickets, {sync_result.duration:.1f}s)'
-        )
-    elif sync_result.error:
-        warn(
-            f'Sync failed: {sync_result.error} (using {sync_result.ticket_count} cached tickets)'
-        )
-    elif no_sync:
-        info(f'Using cached data ({sync_result.ticket_count} tickets)')
-
-    # 4. Classify intent
+    # Classify intent
     intent_strategy = IntentClassification.LOCAL
     if config and config.intent_classification:
         intent_strategy = config.intent_classification
