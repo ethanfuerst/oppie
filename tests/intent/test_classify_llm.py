@@ -42,6 +42,19 @@ async def test_llm_classifies_instruction(mock_llm):
 
 
 @pytest.mark.asyncio
+async def test_llm_classifies_apply(mock_llm):
+    mock_llm.generate.return_value = LLMResponse(
+        text='',
+        json={'intent': 'apply'},
+        usage=TokenUsage(10, 5),
+    )
+
+    result = await classify_intent_llm('apply it', mock_llm)
+
+    assert result == Intent.APPLY
+
+
+@pytest.mark.asyncio
 async def test_llm_falls_back_on_bad_response(mock_llm):
     mock_llm.generate.return_value = LLMResponse(
         text='garbage',

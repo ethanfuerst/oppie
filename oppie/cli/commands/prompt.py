@@ -1,13 +1,17 @@
 import asyncio
 import logging
+import re
+import time
 
 import click
 
 from oppie.ask import generate_ask
+from oppie.cli.commands import apply as apply_cmd
 from oppie.cli.console import console, error, info, setup_provider
 from oppie.config import IntentClassification
 from oppie.intent import Intent, classify_intent, classify_intent_llm
 from oppie.llm import LLMNotConfiguredError, create_llm_provider
+from oppie.plan import check_apply, execute_apply
 from oppie.session import Session
 
 logger = logging.getLogger(__name__)
@@ -51,12 +55,15 @@ def handle_prompt(ctx: click.Context, prompt: str) -> None:
         error('Could not determine intent. Please be more specific:')
         console.print('  [dim]"what bugs are open?"[/dim]         (question)')
         console.print('  [dim]"triage the open bugs"[/dim]        (instruction)')
+        console.print('  [dim]"apply it"[/dim]                    (apply plan)')
         raise SystemExit(1)
 
     if intent == Intent.QUESTION:
         _handle_ask(provider, config, prompt)
-    else:
+    elif intent == Intent.INSTRUCTION:
         _handle_plan(provider, config, prompt)
+    elif intent == Intent.APPLY:
+        _handle_apply(provider, prompt)
 
 
 def _handle_ask(provider, config, prompt: str) -> None:
@@ -83,6 +90,88 @@ def _handle_ask(provider, config, prompt: str) -> None:
     home = provider.home
     session = Session.load_latest(home) or Session.create(home)
     session.add_run_id(result.run_id)
+
+
+_PLAN_ID_RE = re.compile(r'plan-([a-f0-9]+)', re.IGNORECASE)
+
+
+def _handle_apply(provider, prompt: str) -> None:
+    """Route to apply behavior — extract plan_id and force from prompt text."""
+    home = provider.home
+    prompt_lower = prompt.lower()
+
+    # Extract force flag
+    force = 'force' in prompt_lower or '--force' in prompt_lower
+
+    # Extract plan_id from prompt text
+    plan_id_match = _PLAN_ID_RE.search(prompt)
+    plan_id = plan_id_match.group(1) if plan_id_match else None
+
+    # Fall back to session active plan
+    if plan_id is None:
+        session = Session.load_latest(home)
+        plan_id = session.get_active_plan() if session else None
+        if plan_id is None:
+            error('No active plan. Generate a plan first, or specify a plan ID:')
+            console.print('  [bold]oppie "apply plan-abc123"[/bold]')
+            raise SystemExit(1)
+
+    # Phase 1: Pre-apply checks
+    info(f'Loading plan {plan_id}...')
+    try:
+        check = check_apply(provider, plan_id)
+    except FileNotFoundError:
+        error(f'Plan not found: {plan_id}')
+        raise SystemExit(1) from None
+
+    # Handle error states
+    if not check.integrity_ok:
+        apply_cmd._handle_integrity_failure(check, plan_id)
+
+    if check.already_applied:
+        apply_cmd._handle_already_applied(plan_id, home)
+
+    if check.capability_errors:
+        apply_cmd._handle_capability_errors(check)
+
+    if check.drift.deleted_tickets:
+        apply_cmd._handle_deleted_tickets(check, plan_id)
+
+    # Handle drift
+    resolutions = None
+    if check.drift.has_any:
+        apply_cmd._display_informational_drift(check.drift)
+
+    if check.drift.has_critical:
+        if force:
+            apply_cmd._display_force_drift(check.drift)
+        else:
+            resolutions = apply_cmd._resolve_drift_interactive(check)
+
+    # Display operations and confirm
+    apply_cmd._display_operations(check, resolutions)
+
+    if not click.confirm('Apply this plan?', default=False):
+        console.print('Apply cancelled.')
+        raise SystemExit(0)
+
+    # Phase 2: Execute
+    info('Applying...')
+    start_time = time.monotonic()
+    result = execute_apply(provider, plan_id, force=force, resolutions=resolutions)
+    apply_duration = time.monotonic() - start_time
+
+    # Write drift artifact if resolutions were made
+    if resolutions:
+        apply_cmd._write_drift_artifact(home, plan_id, check.drift, resolutions)
+
+    # Display results
+    apply_cmd._display_results(result)
+    apply_cmd._display_stats(None, apply_duration, result)
+
+    # Update session
+    session = Session.load_latest(home) or Session.create(home)
+    session.set_active_plan(plan_id)
 
 
 def _handle_plan(provider, config, prompt: str) -> None:
