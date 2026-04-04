@@ -29,7 +29,7 @@ def init(ctx: click.Context) -> None:
     if home.exists():
         raise click.ClickException(
             f'Instance already exists at {home}. '
-            'Run "config validate" to check it, or remove it to start fresh.'
+            'Run "oppie config validate" to check it, or remove it to start fresh.'
         )
 
     extras = extras_available()

@@ -125,3 +125,4 @@ Allowed types: `feat`, `fix`, `ci`, `chore`, `docs`, `refactor`, `test`
 - Imports at top of file (no in-method imports except in tests when needed).
 - Provider `.setup()` classmethods use in-method imports (Click, discovery) since they're only called during `oppie init`.
 - CLI command module `config_cmd.py` (not `config.py`) avoids shadowing `oppie.config`.
+- CLI command hints in user-facing messages use the full form: `oppie <command>`.

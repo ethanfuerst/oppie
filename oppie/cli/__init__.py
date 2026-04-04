@@ -87,7 +87,7 @@ def cli(
         except FileNotFoundError:
             error('No oppie instance found.')
             console.print(
-                "Run 'init' to create one, or use --home to specify an instance."
+                "Run 'oppie init' to create one, or use --home to specify an instance."
             )
             raise SystemExit(1) from None
 

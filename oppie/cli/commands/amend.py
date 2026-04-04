@@ -59,7 +59,7 @@ def amend(ctx: click.Context, plan_id: str) -> None:
         return
 
     console.print(f'Plan saved: [bold]{new_plan.plan_id}[/bold] (amends {plan_id})')
-    console.print(f'Next: [bold]apply {new_plan.plan_id}[/bold]')
+    console.print(f'Next: [bold]oppie apply {new_plan.plan_id}[/bold]')
 
     # Update session
     session = Session.load_latest(home) or Session.create(home)

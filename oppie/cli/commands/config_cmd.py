@@ -30,7 +30,7 @@ def validate(ctx: click.Context) -> None:
     else:
         _print_check('Config file', 'oppie.yaml', 'MISSING')
         raise click.ClickException(
-            "No configuration found. Run 'init' to create an instance."
+            "No configuration found. Run 'oppie init' to create an instance."
         )
 
     # Load and validate config

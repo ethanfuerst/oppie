@@ -40,7 +40,7 @@ def show(ctx: click.Context, doc: str | None) -> None:
         else:
             click.echo(f'  {name + ".md":<25s} Not configured')
 
-    click.echo("\nUse 'context show <doc>' to view contents.")
+    click.echo("\nUse 'oppie context show <doc>' to view contents.")
 
 
 @context.command()

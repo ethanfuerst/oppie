@@ -133,7 +133,7 @@ def _handle_plan(provider, config, prompt: str) -> None:
     plan.save(provider.home)
     console.print()
     console.print(f'Plan saved: [bold]{plan.plan_id}[/bold]')
-    console.print(f'Next: [bold]apply {plan.plan_id}[/bold]')
+    console.print(f'Next: [bold]oppie apply {plan.plan_id}[/bold]')
 
     # Update session
     home = provider.home
