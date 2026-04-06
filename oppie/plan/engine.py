@@ -11,7 +11,7 @@ from pathlib import Path
 from oppie.artifacts import ArtifactStore, ArtifactType
 from oppie.config import OppieConfig
 from oppie.engine import EngineMode, run_engine
-from oppie.llm import LLMNotConfiguredError, create_llm_provider
+from oppie.llm import create_llm_provider
 from oppie.models.apply import ApplyResult, OperationResult, OperationStatus
 from oppie.models.drift import DriftResolution, DriftResult, FieldDrift
 from oppie.models.operation import Operation
@@ -28,25 +28,6 @@ from oppie.tools.operations import PROPOSE_OPERATION_TOOL
 from oppie.tools.tickets import GET_TICKET_TOOL, SEARCH_TICKETS_TOOL
 
 logger = logging.getLogger(__name__)
-
-_STATUS_KEYWORDS: dict[str, str] = {
-    'close': 'done',
-    'finish': 'done',
-    'complete': 'done',
-    'done': 'done',
-    'reopen': 'open',
-    'open': 'open',
-    'start': 'in_progress',
-    'begin': 'in_progress',
-    'block': 'blocked',
-}
-
-_PRIORITY_KEYWORDS: dict[str, str] = {
-    'prioritize': 'high',
-    'urgent': 'high',
-    'critical': 'high',
-    'deprioritize': 'low',
-}
 
 
 @dataclass(slots=True)
@@ -72,21 +53,12 @@ class PreApplyCheck:
 
 async def generate_plan(
     provider: TicketProvider,
-    config: OppieConfig | None,
+    config: OppieConfig,
     instruction: str,
     *,
     save: bool = True,
 ) -> Plan:
-    """Generate a plan from a user instruction using the agent loop.
-
-    Pipeline:
-    1. Load tickets from the provider.
-    2. Create LLM provider (fall back to keyword matching if none configured).
-    3. Build layered system prompt with context and constraints.
-    4. Run agent loop (research -> propose operations -> summary).
-    5. Run preflight validation (capabilities + ticket existence).
-    6. Optionally save plan as JSON artifact.
-    """
+    """Generate a plan from a user instruction using the agent loop."""
     logger.info('Generating plan for instruction: %r', instruction)
     home = provider.home
 
@@ -95,21 +67,8 @@ async def generate_plan(
     ticket_snapshots = {t.id: t for t in tickets}
     logger.debug('Loaded %d tickets', len(tickets))
 
-    # 2. Create LLM provider (fallback if none configured)
-    try:
-        llm_config = config.llm if config else None
-        llm = create_llm_provider(llm_config)
-    except LLMNotConfiguredError:
-        logger.debug('Using fallback plan generation (no LLM configured)')
-        plan = _generate_fallback(provider, instruction)
-        preflight_errors = _run_preflight(provider, plan.operations)
-        if preflight_errors:
-            plan.status = PlanStatus.INVALID
-            plan.risks.extend(preflight_errors)
-        plan.ticket_snapshots = ticket_snapshots
-        if save:
-            plan.save(home)
-        return plan
+    # 2. Create LLM provider
+    llm = create_llm_provider(config.llm)
 
     # 3. Build layered system prompt
     past_plans = _find_similar_plans(home, instruction)
@@ -143,8 +102,8 @@ async def generate_plan(
         capabilities=provider.capabilities,
     )
 
-    max_tokens = llm_config.max_tokens if llm_config else 2000
-    temperature = llm_config.temperature if llm_config else 0.7
+    max_tokens = config.llm.max_tokens
+    temperature = config.llm.temperature
 
     # 4. Run agent loop (research -> propose -> summary)
     async with llm:
@@ -193,7 +152,7 @@ async def generate_plan(
 
 async def amend_plan(
     provider: TicketProvider,
-    config: OppieConfig | None,
+    config: OppieConfig,
     plan_id: str,
 ) -> Plan:
     """Load an existing plan and re-generate with current state.
@@ -577,77 +536,6 @@ def _find_similar_plans(
         except (FileNotFoundError, json.JSONDecodeError, KeyError, ValueError):
             continue
     return plans
-
-
-def _generate_fallback(provider: TicketProvider, instruction: str) -> Plan:
-    """Generate a plan without LLM using keyword matching.
-
-    Parse instruction for status/priority keywords, filter tickets,
-    and generate simple field-change operations.
-    """
-    words = set(re.findall(r'\w+', instruction.lower()))
-    operations: list[Operation] = []
-    tickets = provider.list_tickets()
-
-    # Determine target status change
-    target_status = next(
-        (status for keyword, status in _STATUS_KEYWORDS.items() if keyword in words),
-        None,
-    )
-
-    # Determine target priority change
-    target_priority = next(
-        (
-            priority
-            for keyword, priority in _PRIORITY_KEYWORDS.items()
-            if keyword in words
-        ),
-        None,
-    )
-
-    # Filter tickets by label keywords (any label word appearing in instruction)
-    matching_tickets = tickets
-    label_words = words - set(_STATUS_KEYWORDS) - set(_PRIORITY_KEYWORDS)
-    if label_words:
-        matching_tickets = [
-            t
-            for t in tickets
-            if any(lw in label.lower() for lw in label_words for label in t.labels)
-            or any(lw in t.title.lower() for lw in label_words)
-        ]
-        # Fall back to all tickets if no label match
-        if not matching_tickets:
-            matching_tickets = tickets
-
-    for ticket in matching_tickets:
-        if target_status and ticket.status != target_status:
-            operations.append(
-                Operation(
-                    ticket_id=ticket.id,
-                    field='status',
-                    before_value=ticket.status,
-                    after_value=target_status,
-                    rationale=f'Keyword match: set status to {target_status}',
-                )
-            )
-        if target_priority and ticket.priority != target_priority:
-            operations.append(
-                Operation(
-                    ticket_id=ticket.id,
-                    field='priority',
-                    before_value=ticket.priority,
-                    after_value=target_priority,
-                    rationale=f'Keyword match: set priority to {target_priority}',
-                )
-            )
-
-    return Plan(
-        instruction=instruction,
-        operations=operations,
-        risks=['Generated without LLM — operations based on keyword matching only'],
-        created_at=datetime.now(UTC).isoformat(),
-        status=PlanStatus.SAVED,
-    )
 
 
 def _rebuild_plan_index(plans_dir: Path) -> list[dict]:

@@ -38,10 +38,9 @@ def test_validate_valid_config():
     assert config.temperature == 0.7
 
 
-def test_validate_no_llm_is_valid():
-    config = OppieConfig(
-        instance_type=InstanceType.REPO,
-        provider=ProviderConfig(provider_type=ProviderType.LOCAL),
-    )
-
-    assert config.llm is None
+def test_validate_no_llm_raises():
+    with pytest.raises(ValidationError, match='llm'):
+        OppieConfig(
+            instance_type=InstanceType.REPO,
+            provider=ProviderConfig(provider_type=ProviderType.LOCAL),
+        )

@@ -7,4 +7,11 @@ def write_minimal_config(home: Path) -> None:
 
     config_path = home / 'config' / 'oppie.yaml'
     with open(config_path, 'w') as f:
-        yaml.dump({'instance_type': 'repo', 'provider': {'type': 'local'}}, f)
+        yaml.dump(
+            {
+                'instance_type': 'repo',
+                'provider': {'type': 'local'},
+                'llm': {'backend': 'openai-compatible', 'model': 'test'},
+            },
+            f,
+        )

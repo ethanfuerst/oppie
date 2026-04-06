@@ -50,17 +50,14 @@ def validate(ctx: click.Context) -> None:
     _print_check('Provider', config.provider.provider_type.value.capitalize(), 'ok')
 
     # LLM backend
-    if config.llm:
-        endpoint = config.llm.endpoint or config.llm.backend.value
-        try:
-            provider = create_llm_provider(config.llm)
-            connected = asyncio.run(_test_llm_connection(provider))
-            status = 'ok' if connected else 'UNREACHABLE'
-        except Exception:
-            status = 'UNREACHABLE'
-        _print_check('LLM backend', endpoint, status)
-    else:
-        _print_check('LLM backend', 'not configured', 'ok (optional)')
+    endpoint = config.llm.endpoint or config.llm.backend.value
+    try:
+        provider = create_llm_provider(config.llm)
+        connected = asyncio.run(_test_llm_connection(provider))
+        status = 'ok' if connected else 'UNREACHABLE'
+    except Exception:
+        status = 'UNREACHABLE'
+    _print_check('LLM backend', endpoint, status)
 
     # Context docs
     context_dir = home / 'context'

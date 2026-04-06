@@ -2,10 +2,24 @@ from unittest.mock import patch
 
 import pytest
 
+from oppie.config import (
+    InstanceType,
+    LLMBackend,
+    LLMConfig,
+    OppieConfig,
+    ProviderConfig,
+)
+from oppie.llm import LLMNotConfiguredError
 from oppie.models.plan import PlanStatus
 from oppie.plan import amend_plan, generate_plan, load_plan
 from tests.helpers import make_ticket, write_ticket
 from tests.plan_engine.conftest import make_plan_mock_llm
+
+PLAN_TEST_CONFIG = OppieConfig(
+    instance_type=InstanceType.REPO,
+    provider=ProviderConfig(type='local'),
+    llm=LLMConfig(backend=LLMBackend.OPENAI_COMPATIBLE, model='test'),
+)
 
 
 @pytest.mark.asyncio
@@ -25,7 +39,7 @@ async def test_generate_plan_llm_path(home, provider):
     )
 
     with patch('oppie.plan.engine.create_llm_provider', return_value=mock_llm):
-        plan = await generate_plan(provider, None, 'close T-1')
+        plan = await generate_plan(provider, PLAN_TEST_CONFIG, 'close T-1')
 
     assert plan.status == PlanStatus.SAVED
     assert len(plan.operations) == 1
@@ -38,42 +52,7 @@ async def test_generate_plan_llm_path(home, provider):
 
 
 @pytest.mark.asyncio
-async def test_generate_plan_fallback_path(home, provider):
-    ticket = make_ticket(ticket_id='T-1', status='open')
-    write_ticket(home, ticket)
-
-    plan = await generate_plan(provider, None, 'close all tickets')
-
-    assert plan.status == PlanStatus.SAVED
-    assert any('without LLM' in r for r in plan.risks)
-    assert len(plan.operations) == 1
-    assert plan.operations[0].field == 'status'
-    assert plan.operations[0].after_value == 'done'
-    assert plan.ticket_snapshots is not None
-    assert 'T-1' in plan.ticket_snapshots
-
-
-@pytest.mark.asyncio
-async def test_generate_plan_fallback_with_preflight_errors(home, provider):
-    ticket = make_ticket(ticket_id='T-1', status='open')
-    write_ticket(home, ticket)
-
-    def fake_preflight(prov, ops):
-        return ['Simulated preflight failure']
-
-    with patch('oppie.plan.engine._run_preflight', side_effect=fake_preflight):
-        plan = await generate_plan(provider, None, 'close all tickets')
-
-    assert plan.status == PlanStatus.INVALID
-    assert 'Simulated preflight failure' in plan.risks
-    assert plan.ticket_snapshots is not None
-
-
-@pytest.mark.asyncio
 async def test_generate_plan_llm_with_preflight_errors(home, provider):
-    # No tickets exist so propose_operation for T-MISSING will produce an error tool result
-    # But since the tool validates during execution, the operation won't be collected
-    # and the plan will have no operations (preflight won't find errors either)
     mock_llm = make_plan_mock_llm(
         [
             {
@@ -86,10 +65,21 @@ async def test_generate_plan_llm_with_preflight_errors(home, provider):
     )
 
     with patch('oppie.plan.engine.create_llm_provider', return_value=mock_llm):
-        plan = await generate_plan(provider, None, 'close T-MISSING')
+        plan = await generate_plan(provider, PLAN_TEST_CONFIG, 'close T-MISSING')
 
-    # propose_operation returns is_error=True for missing ticket, so no operations collected
     assert len(plan.operations) == 0
+
+
+@pytest.mark.asyncio
+async def test_generate_plan_no_llm_raises(home, provider):
+    with (
+        patch(
+            'oppie.plan.engine.create_llm_provider',
+            side_effect=LLMNotConfiguredError('not configured'),
+        ),
+        pytest.raises(LLMNotConfiguredError),
+    ):
+        await generate_plan(provider, PLAN_TEST_CONFIG, 'close all tickets')
 
 
 @pytest.mark.asyncio
@@ -97,8 +87,32 @@ async def test_amend_links_parent(home, provider):
     ticket = make_ticket(ticket_id='T-1', status='open')
     write_ticket(home, ticket)
 
-    original = await generate_plan(provider, None, 'close all tickets')
-    amended = await amend_plan(provider, None, original.plan_id)
+    mock_llm = make_plan_mock_llm(
+        [
+            {
+                'ticket_id': 'T-1',
+                'field': 'status',
+                'new_value': 'done',
+                'rationale': 'close',
+            }
+        ]
+    )
+
+    with patch('oppie.plan.engine.create_llm_provider', return_value=mock_llm):
+        original = await generate_plan(provider, PLAN_TEST_CONFIG, 'close all tickets')
+
+    mock_llm_2 = make_plan_mock_llm(
+        [
+            {
+                'ticket_id': 'T-1',
+                'field': 'status',
+                'new_value': 'done',
+                'rationale': 'close',
+            }
+        ]
+    )
+    with patch('oppie.plan.engine.create_llm_provider', return_value=mock_llm_2):
+        amended = await amend_plan(provider, PLAN_TEST_CONFIG, original.plan_id)
 
     assert amended.parent_plan_id == original.plan_id
     loaded = load_plan(home, amended.plan_id)
@@ -108,4 +122,4 @@ async def test_amend_links_parent(home, provider):
 @pytest.mark.asyncio
 async def test_amend_not_found(home, provider):
     with pytest.raises(FileNotFoundError, match='Plan not found'):
-        await amend_plan(provider, None, 'nonexistent')
+        await amend_plan(provider, PLAN_TEST_CONFIG, 'nonexistent')

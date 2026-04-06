@@ -19,7 +19,9 @@ def setup_cli_instance(tmp_path):
     config_dir = home / 'config'
     config_dir.mkdir(parents=True, exist_ok=True)
     (config_dir / 'oppie.yaml').write_text(
-        'instance_type: repo\nprovider:\n  type: local\n'
+        'instance_type: repo\n'
+        'provider:\n  type: local\n'
+        'llm:\n  backend: openai-compatible\n  model: test\n'
     )
 
     return home

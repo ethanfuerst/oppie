@@ -20,6 +20,10 @@ def amend(ctx: click.Context, plan_id: str) -> None:
     config = ctx.obj['config']
     no_sync = ctx.obj.get('no_sync', False)
 
+    if config is None:
+        error('LLM is not configured. Run "oppie init" to set up an LLM backend.')
+        raise SystemExit(1)
+
     # Load original plan
     info(f'Loading plan {plan_id}...')
     try:
