@@ -1,3 +1,6 @@
+import pytest
+from pydantic import ValidationError
+
 from oppie.config import (
     InstanceType,
     LLMBackend,
@@ -30,13 +33,12 @@ def test_provider_config_to_dict_excludes_api_key():
     assert 'api_key' not in d
 
 
-def test_oppie_config_without_llm():
-    config = OppieConfig(
-        instance_type=InstanceType.REPO,
-        provider=ProviderConfig(provider_type=ProviderType.LOCAL),
-    )
-
-    assert config.llm is None
+def test_oppie_config_requires_llm():
+    with pytest.raises(ValidationError, match='llm'):
+        OppieConfig(
+            instance_type=InstanceType.REPO,
+            provider=ProviderConfig(provider_type=ProviderType.LOCAL),
+        )
 
 
 def test_oppie_config_with_llm():
@@ -64,6 +66,7 @@ def test_oppie_config_ignores_extra_fields():
     config = OppieConfig(
         instance_type=InstanceType.REPO,
         provider=ProviderConfig(provider_type=ProviderType.LOCAL),
+        llm=LLMConfig(backend=LLMBackend.OPENAI_COMPATIBLE, model='test'),
         future_feature=True,
     )
 

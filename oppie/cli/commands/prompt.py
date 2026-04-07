@@ -10,7 +10,7 @@ from oppie.cli.commands import apply as apply_cmd
 from oppie.cli.console import console, error, info, setup_provider
 from oppie.config import IntentClassification
 from oppie.intent import Intent, classify_intent, classify_intent_llm
-from oppie.llm import LLMNotConfiguredError, create_llm_provider
+from oppie.llm import create_llm_provider
 from oppie.plan import check_apply, execute_apply
 from oppie.session import Session
 
@@ -34,15 +34,15 @@ def handle_prompt(ctx: click.Context, prompt: str) -> None:
         intent_strategy = config.intent_classification
 
     if intent_strategy == IntentClassification.LLM and config and config.llm:
+        llm = create_llm_provider(config.llm)
+
+        async def _classify() -> Intent:
+            async with llm:
+                return await classify_intent_llm(prompt, llm)
+
         try:
-            llm = create_llm_provider(config.llm)
-
-            async def _classify() -> Intent:
-                async with llm:
-                    return await classify_intent_llm(prompt, llm)
-
             intent = asyncio.run(_classify())
-        except (LLMNotConfiguredError, Exception):
+        except Exception:
             logger.debug('LLM classification failed, falling back to local')
             intent = classify_intent(prompt)
     else:
@@ -50,7 +50,12 @@ def handle_prompt(ctx: click.Context, prompt: str) -> None:
 
     logger.info('Classified prompt as %s', intent.value)
 
-    # 5. Route
+    # 5. Guard: LLM required for question/instruction
+    if intent in (Intent.QUESTION, Intent.INSTRUCTION) and config is None:
+        error('LLM is not configured. Run "oppie init" to set up an LLM backend.')
+        raise SystemExit(1)
+
+    # 6. Route
     if intent == Intent.AMBIGUOUS:
         error('Could not determine intent. Please be more specific:')
         console.print('  [dim]"what bugs are open?"[/dim]         (question)')

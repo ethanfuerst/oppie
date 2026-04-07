@@ -11,12 +11,15 @@ from oppie.config import (
     save_provider_credentials,
 )
 
+_TEST_LLM = LLMConfig(backend=LLMBackend.OPENAI_COMPATIBLE, model='test')
+
 
 def test_save_oppie_config_writes_yaml(tmp_path):
     config_dir = tmp_path / 'config'
     config = OppieConfig(
         instance_type=InstanceType.REPO,
         provider=ProviderConfig(type='local'),
+        llm=_TEST_LLM,
     )
 
     result = save_oppie_config(config_dir, config)
@@ -27,7 +30,7 @@ def test_save_oppie_config_writes_yaml(tmp_path):
     loaded = load_oppie_config(config_dir)
     assert loaded.instance_type == InstanceType.REPO
     assert loaded.provider.provider_type.value == 'local'
-    assert loaded.llm is None
+    assert loaded.llm is not None
 
 
 def test_save_oppie_config_with_llm(tmp_path):
@@ -113,6 +116,7 @@ def test_save_oppie_config_atomic_cleanup(tmp_path):
     config = OppieConfig(
         instance_type=InstanceType.REPO,
         provider=ProviderConfig(type='local'),
+        llm=_TEST_LLM,
     )
     save_oppie_config(config_dir, config)
 

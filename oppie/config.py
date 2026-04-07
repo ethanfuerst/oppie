@@ -71,7 +71,7 @@ class OppieConfig(BaseModel):
 
     instance_type: InstanceType
     provider: ProviderConfig
-    llm: LLMConfig | None = None
+    llm: LLMConfig
     intent_classification: IntentClassification = IntentClassification.LOCAL
 
 
@@ -162,18 +162,17 @@ def save_oppie_config(config_dir: Path, config: OppieConfig) -> Path:
     data: dict[str, Any] = {
         'instance_type': config.instance_type.value,
         'provider': config.provider.to_dict(),
-    }
-    if config.llm:
-        data['llm'] = {
+        'llm': {
             'backend': config.llm.backend.value,
             'model': config.llm.model,
-        }
-        if config.llm.endpoint:
-            data['llm']['endpoint'] = config.llm.endpoint
-        if config.llm.max_tokens != 2000:
-            data['llm']['max_tokens'] = config.llm.max_tokens
-        if config.llm.temperature != 0.7:
-            data['llm']['temperature'] = config.llm.temperature
+        },
+    }
+    if config.llm.endpoint:
+        data['llm']['endpoint'] = config.llm.endpoint
+    if config.llm.max_tokens != 2000:
+        data['llm']['max_tokens'] = config.llm.max_tokens
+    if config.llm.temperature != 0.7:
+        data['llm']['temperature'] = config.llm.temperature
 
     if config.intent_classification != IntentClassification.LOCAL:
         data['intent_classification'] = config.intent_classification.value

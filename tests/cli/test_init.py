@@ -3,6 +3,10 @@ from click.testing import CliRunner
 
 from oppie.cli import cli
 
+# Input sequences for init tests:
+# Instance type (1=repo) + Provider (1=local) + LLM backend (1=local, accept defaults) + Test? (n) + Context? (n)
+_LOCAL_LLM_INPUT = '1\n1\n1\nllama-3.2-8b\nhttp://localhost:8080/v1\nn\nn\n'
+
 
 def test_init_local_minimal(tmp_path):
     home = tmp_path / '.oppie'
@@ -10,7 +14,7 @@ def test_init_local_minimal(tmp_path):
     result = runner.invoke(
         cli,
         ['--home', str(home), 'init'],
-        input='1\n1\n3\nn\n',
+        input=_LOCAL_LLM_INPUT,
     )
 
     assert result.exit_code == 0, result.output
@@ -18,7 +22,8 @@ def test_init_local_minimal(tmp_path):
     config = yaml.safe_load((home / 'config' / 'oppie.yaml').read_text())
     assert config['instance_type'] == 'repo'
     assert config['provider']['type'] == 'local'
-    assert 'llm' not in config
+    assert 'llm' in config
+    assert config['llm']['backend'] == 'openai-compatible'
     assert 'oppie is ready' in result.output
 
 
@@ -41,26 +46,12 @@ def test_init_portfolio_type(tmp_path):
     result = runner.invoke(
         cli,
         ['--home', str(home), 'init'],
-        input='2\n1\n3\nn\n',
+        input='2\n1\n1\nllama-3.2-8b\nhttp://localhost:8080/v1\nn\nn\n',
     )
 
     assert result.exit_code == 0, result.output
     config = yaml.safe_load((home / 'config' / 'oppie.yaml').read_text())
     assert config['instance_type'] == 'portfolio'
-
-
-def test_init_with_llm_skip(tmp_path):
-    home = tmp_path / '.oppie'
-    runner = CliRunner()
-    result = runner.invoke(
-        cli,
-        ['--home', str(home), 'init'],
-        input='1\n1\n3\nn\n',
-    )
-
-    assert result.exit_code == 0, result.output
-    config = yaml.safe_load((home / 'config' / 'oppie.yaml').read_text())
-    assert 'llm' not in config
 
 
 def test_init_with_context_docs(tmp_path):
@@ -69,7 +60,7 @@ def test_init_with_context_docs(tmp_path):
     result = runner.invoke(
         cli,
         ['--home', str(home), 'init'],
-        input='1\n1\n3\ny\n',
+        input='1\n1\n1\nllama-3.2-8b\nhttp://localhost:8080/v1\nn\ny\n',
     )
 
     assert result.exit_code == 0, result.output
@@ -86,7 +77,7 @@ def test_init_shows_unified_prompt_examples(tmp_path):
     result = runner.invoke(
         cli,
         ['--home', str(home), 'init'],
-        input='1\n1\n3\nn\n',
+        input=_LOCAL_LLM_INPUT,
     )
 
     assert result.exit_code == 0, result.output
@@ -122,11 +113,11 @@ def test_init_linear_provider(tmp_path, monkeypatch):
         return_value=mock_provider,
     ):
         runner = CliRunner()
-        # Choose: repo, linear provider, no sync, skip LLM, no context
+        # Choose: repo, linear provider, no sync, LLM local (accept defaults), no test, no context
         result = runner.invoke(
             cli,
             ['--home', str(home), 'init'],
-            input='1\n2\nn\n3\nn\n',
+            input='1\n2\nn\n1\nllama-3.2-8b\nhttp://localhost:8080/v1\nn\nn\n',
         )
 
     assert result.exit_code == 0, result.output
@@ -134,3 +125,20 @@ def test_init_linear_provider(tmp_path, monkeypatch):
     assert config['provider']['type'] == 'linear'
     assert config['provider']['team_id'] == 'team-123'
     mock_provider.close.assert_called_once()
+
+
+def test_init_fails_without_llm_extra(tmp_path, monkeypatch):
+    home = tmp_path / '.oppie'
+    monkeypatch.setattr(
+        'oppie.cli.commands.init.extras_available',
+        lambda: {'linear': False, 'llm': False, 'tui': False},
+    )
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        ['--home', str(home), 'init'],
+        input='1\n1\n',
+    )
+
+    assert result.exit_code != 0
+    assert 'pip install oppie[llm]' in result.output

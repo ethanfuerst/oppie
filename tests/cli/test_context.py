@@ -3,7 +3,14 @@ from unittest.mock import patch
 from click.testing import CliRunner
 
 from oppie.cli import cli
-from oppie.config import InstanceType, OppieConfig, ProviderConfig, save_oppie_config
+from oppie.config import (
+    InstanceType,
+    LLMBackend,
+    LLMConfig,
+    OppieConfig,
+    ProviderConfig,
+    save_oppie_config,
+)
 from oppie.instance import Instance
 
 
@@ -16,6 +23,7 @@ def _setup_instance_with_context(tmp_path):
         OppieConfig(
             instance_type=InstanceType.REPO,
             provider=ProviderConfig(type='local'),
+            llm=LLMConfig(backend=LLMBackend.OPENAI_COMPATIBLE, model='test'),
         ),
     )
     context_dir = home / 'context'

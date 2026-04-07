@@ -11,17 +11,29 @@ from oppie.config import (
 )
 from tests.config.conftest import write_yaml
 
+_LLM_DATA = {'backend': 'openai-compatible', 'model': 'test'}
+
+
+def test_load_oppie_config_missing_llm_raises(tmp_path):
+    write_yaml(
+        tmp_path / 'oppie.yaml',
+        {'instance_type': 'repo', 'provider': {'type': 'local'}},
+    )
+
+    with pytest.raises(ValidationError, match='llm'):
+        load_oppie_config(tmp_path)
+
 
 def test_load_oppie_config_minimal(tmp_path):
     write_yaml(
         tmp_path / 'oppie.yaml',
-        {'instance_type': 'repo', 'provider': {'type': 'local'}},
+        {'instance_type': 'repo', 'provider': {'type': 'local'}, 'llm': _LLM_DATA},
     )
     config = load_oppie_config(tmp_path)
 
     assert config.instance_type == InstanceType.REPO
     assert config.provider.provider_type == ProviderType.LOCAL
-    assert config.llm is None
+    assert config.llm.backend == LLMBackend.OPENAI_COMPATIBLE
 
 
 def test_load_oppie_config_full(tmp_path):
@@ -103,6 +115,7 @@ def test_load_oppie_config_ignores_unknown_keys(tmp_path):
         {
             'instance_type': 'repo',
             'provider': {'type': 'local'},
+            'llm': _LLM_DATA,
             'future_feature': True,
         },
     )
@@ -155,6 +168,7 @@ def test_load_config_merges_credentials(tmp_path):
         {
             'instance_type': 'repo',
             'provider': {'type': 'linear', 'team_id': 'team-123'},
+            'llm': _LLM_DATA,
         },
     )
     write_yaml(tmp_path / 'provider.yaml', {'api_key': 'sk-merged'})
@@ -166,7 +180,7 @@ def test_load_config_merges_credentials(tmp_path):
 def test_load_config_no_credentials(tmp_path):
     write_yaml(
         tmp_path / 'oppie.yaml',
-        {'instance_type': 'repo', 'provider': {'type': 'local'}},
+        {'instance_type': 'repo', 'provider': {'type': 'local'}, 'llm': _LLM_DATA},
     )
     config = load_config(tmp_path)
 

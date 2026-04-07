@@ -1,7 +1,14 @@
 from click.testing import CliRunner
 
 from oppie.cli import cli
-from oppie.config import InstanceType, OppieConfig, ProviderConfig, save_oppie_config
+from oppie.config import (
+    InstanceType,
+    LLMBackend,
+    LLMConfig,
+    OppieConfig,
+    ProviderConfig,
+    save_oppie_config,
+)
 from oppie.instance import Instance
 
 
@@ -12,6 +19,7 @@ def _setup_valid_instance(tmp_path):
     config = OppieConfig(
         instance_type=InstanceType.REPO,
         provider=ProviderConfig(type='local'),
+        llm=LLMConfig(backend=LLMBackend.OPENAI_COMPATIBLE, model='test'),
     )
     save_oppie_config(home / 'config', config)
     return home

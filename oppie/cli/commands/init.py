@@ -76,10 +76,12 @@ def init(ctx: click.Context) -> None:
     else:
         provider_config = ProviderConfig(type='local')  # type: ignore[arg-type]
 
-    # Step 3: LLM backend (optional)
-    llm_config = None
-    if extras['llm']:
-        llm_config = _prompt_llm_config()
+    # Step 3: LLM backend (required)
+    if not extras['llm']:
+        raise click.ClickException(
+            'LLM backend requires httpx. Install with: pip install oppie[llm]'
+        )
+    llm_config = _prompt_llm_config()
 
     # Step 4: Context docs (optional)
     if click.confirm(
@@ -99,12 +101,7 @@ def init(ctx: click.Context) -> None:
     console.print('\n[bold green]oppie is ready.[/bold green]\n')
     console.print(f'  Instance home:  {home}')
     console.print(f'  Provider:       {provider_config.provider_type.value}')
-    if llm_config:
-        console.print(
-            f'  LLM:            {llm_config.model} ({llm_config.backend.value})'
-        )
-    else:
-        console.print('  LLM:            [dim]not configured[/dim]')
+    console.print(f'  LLM:            {llm_config.model} ({llm_config.backend.value})')
     console.print('\n[bold]Next steps — just type what you want:[/bold]')
     console.print('  [dim]"what\'s the status of the auth project?"[/dim]   (question)')
     console.print(
@@ -115,16 +112,12 @@ def init(ctx: click.Context) -> None:
     )
 
 
-def _prompt_llm_config() -> LLMConfig | None:
-    """Prompt for LLM backend configuration. Return None if skipped."""
-    console.print('\n[bold]LLM backend (optional):[/bold]')
+def _prompt_llm_config() -> LLMConfig:
+    """Prompt for LLM backend configuration."""
+    console.print('\n[bold]LLM backend:[/bold]')
     console.print('  1. Local (OpenAI-compatible endpoint)')
     console.print('  2. Anthropic Claude API')
-    console.print('  3. Skip')
-    llm_choice = click.prompt('Choice', type=click.IntRange(1, 3), default=3)
-
-    if llm_choice == 3:
-        return None
+    llm_choice = click.prompt('Choice', type=click.IntRange(1, 2), default=1)
 
     if llm_choice == 1:
         backend = LLMBackend.OPENAI_COMPATIBLE
