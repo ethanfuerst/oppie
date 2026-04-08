@@ -1,12 +1,14 @@
-from unittest.mock import MagicMock, patch
+import json
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from click.testing import CliRunner
 
 from oppie.cli import cli
+from oppie.intent import Intent
 from oppie.models.operation import Operation
 from oppie.session import Session
 from tests.cli.conftest import make_and_save_plan, setup_cli_instance
-from tests.helpers import make_ticket, write_ticket
+from tests.helpers import make_ticket, setup_instance, write_ticket
 
 
 def test_prompt_no_instance(tmp_path):
@@ -18,51 +20,47 @@ def test_prompt_no_instance(tmp_path):
     assert 'No oppie instance' in result.output
 
 
-def test_prompt_ambiguous():
-    """Single word with no clear intent shows ambiguous error."""
+def test_prompt_requires_llm_config(tmp_path):
+    """Prompt command fails without LLM config."""
+    home = setup_instance(tmp_path)
+    marker = {'version': '0.0.1', 'instance_type': 'repo'}
+    (home / '.oppie-marker').write_text(json.dumps(marker, indent=2) + '\n')
     runner = CliRunner()
 
-    with patch('oppie.instance.Instance') as mock_instance_cls:
-        mock_instance_cls.detect.return_value = '/fake/home'
-        mock_instance_cls.load.return_value = MagicMock(config=None)
-
-        with patch('oppie.providers.local.LocalProvider') as mock_provider_cls:
-            mock_provider = MagicMock()
-            mock_provider.list_tickets.return_value = []
-            mock_provider_cls.setup.return_value = mock_provider
-
-            with patch('oppie.sync.auto_sync') as mock_sync:
-                mock_sync.return_value = MagicMock(
-                    synced=False, error=None, ticket_count=0
-                )
-
-                result = runner.invoke(cli, ['bugs'])
+    result = runner.invoke(cli, ['--home', str(home), 'what is blocking?'])
 
     assert result.exit_code != 0
-    assert 'Could not determine intent' in result.output
+    assert 'LLM is not configured' in result.output
 
 
-def test_prompt_ambiguous_shows_apply_hint():
-    """Ambiguous error message includes apply hint."""
+def test_prompt_unmatched_routes_to_ask(tmp_path):
+    """Unmatched prompts default to QUESTION and route to ask."""
+    home = setup_cli_instance(tmp_path)
     runner = CliRunner()
 
-    with patch('oppie.instance.Instance') as mock_instance_cls:
-        mock_instance_cls.detect.return_value = '/fake/home'
-        mock_instance_cls.load.return_value = MagicMock(config=None)
+    with patch(
+        'oppie.cli.commands.prompt.classify_intent', new_callable=AsyncMock
+    ) as mock_classify:
+        mock_classify.return_value = Intent.QUESTION
+        with patch('oppie.cli.commands.prompt.generate_ask') as mock_ask:
+            mock_ask.return_value = MagicMock(
+                answer='I handle project management.',
+                artifact_path=None,
+                run_id='test-run',
+                duration=1.0,
+                usage=None,
+            )
 
-        with patch('oppie.providers.local.LocalProvider') as mock_provider_cls:
-            mock_provider = MagicMock()
-            mock_provider.list_tickets.return_value = []
-            mock_provider_cls.setup.return_value = mock_provider
+            result = runner.invoke(cli, ['--home', str(home), 'hello there'])
 
-            with patch('oppie.sync.auto_sync') as mock_sync:
-                mock_sync.return_value = MagicMock(
-                    synced=False, error=None, ticket_count=0
-                )
+    assert result.exit_code == 0
+    mock_ask.assert_called_once()
 
-                result = runner.invoke(cli, ['bugs'])
 
-    assert 'apply plan' in result.output
+def _mock_classify_as_apply():
+    """Patch classify_intent to return APPLY for apply tests."""
+    mock = AsyncMock(return_value=Intent.APPLY)
+    return patch('oppie.cli.commands.prompt.classify_intent', mock)
 
 
 def test_prompt_apply_no_active_plan(tmp_path):
@@ -70,7 +68,8 @@ def test_prompt_apply_no_active_plan(tmp_path):
     home = setup_cli_instance(tmp_path)
     runner = CliRunner()
 
-    result = runner.invoke(cli, ['--home', str(home), 'apply it'])
+    with _mock_classify_as_apply():
+        result = runner.invoke(cli, ['--home', str(home), 'apply it'])
 
     assert result.exit_code != 0
     assert 'No active plan' in result.output
@@ -81,7 +80,8 @@ def test_prompt_apply_plan_not_found(tmp_path):
     home = setup_cli_instance(tmp_path)
     runner = CliRunner()
 
-    result = runner.invoke(cli, ['--home', str(home), 'apply plan-deadbeef'])
+    with _mock_classify_as_apply():
+        result = runner.invoke(cli, ['--home', str(home), 'apply plan-deadbeef'])
 
     assert result.exit_code != 0
     assert 'Plan not found' in result.output
@@ -96,9 +96,10 @@ def test_prompt_apply_with_plan_id(tmp_path):
     plan = make_and_save_plan(home, ops, checked=True)
 
     runner = CliRunner()
-    result = runner.invoke(
-        cli, ['--home', str(home), f'apply plan-{plan.plan_id}'], input='y\n'
-    )
+    with _mock_classify_as_apply():
+        result = runner.invoke(
+            cli, ['--home', str(home), f'apply plan-{plan.plan_id}'], input='y\n'
+        )
 
     assert result.exit_code == 0
     assert 'All operations applied successfully' in result.output
@@ -116,7 +117,8 @@ def test_prompt_apply_from_session(tmp_path):
     session.set_active_plan(plan.plan_id)
 
     runner = CliRunner()
-    result = runner.invoke(cli, ['--home', str(home), 'apply it'], input='y\n')
+    with _mock_classify_as_apply():
+        result = runner.invoke(cli, ['--home', str(home), 'apply it'], input='y\n')
 
     assert result.exit_code == 0
     assert 'All operations applied successfully' in result.output
@@ -131,9 +133,10 @@ def test_prompt_apply_cancelled(tmp_path):
     plan = make_and_save_plan(home, ops, checked=True)
 
     runner = CliRunner()
-    result = runner.invoke(
-        cli, ['--home', str(home), f'apply plan-{plan.plan_id}'], input='n\n'
-    )
+    with _mock_classify_as_apply():
+        result = runner.invoke(
+            cli, ['--home', str(home), f'apply plan-{plan.plan_id}'], input='n\n'
+        )
 
     assert 'Apply cancelled' in result.output
 
@@ -147,10 +150,11 @@ def test_prompt_apply_force_flag(tmp_path):
     plan = make_and_save_plan(home, ops, checked=True)
 
     runner = CliRunner()
-    result = runner.invoke(
-        cli,
-        ['--home', str(home), f'apply plan-{plan.plan_id} --force'],
-        input='y\n',
-    )
+    with _mock_classify_as_apply():
+        result = runner.invoke(
+            cli,
+            ['--home', str(home), f'apply plan-{plan.plan_id} --force'],
+            input='y\n',
+        )
 
     assert result.exit_code == 0

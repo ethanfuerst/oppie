@@ -39,6 +39,19 @@ def apply(ctx: click.Context, plan_id: str | None, force: bool) -> None:
             raise SystemExit(1)
 
     provider, sync_result = setup_provider(home, no_sync=no_sync)
+    sync_duration = sync_result.duration if sync_result.synced else None
+    run_apply(provider, plan_id, force=force, sync_duration=sync_duration)
+
+
+def run_apply(
+    provider,
+    plan_id: str,
+    *,
+    force: bool = False,
+    sync_duration: float | None = None,
+) -> None:
+    """Shared apply logic used by both the apply command and prompt routing."""
+    home = provider.home
 
     # Phase 1: Pre-apply checks
     info(f'Loading plan {plan_id}...')
@@ -91,11 +104,7 @@ def apply(ctx: click.Context, plan_id: str | None, force: bool) -> None:
 
     # Display results
     _display_results(result)
-
-    # Stats line
-    _display_stats(
-        sync_result.duration if sync_result.synced else None, apply_duration, result
-    )
+    _display_stats(sync_duration, apply_duration, result)
 
     # Update session
     session = Session.load_latest(home) or Session.create(home)
