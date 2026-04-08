@@ -7,6 +7,7 @@ import click
 from oppie.ask import generate_ask
 from oppie.cli.commands.apply import run_apply
 from oppie.cli.console import console, error, info, setup_provider
+from oppie.events import AskResultEvent, PlanResultEvent
 from oppie.intent import Intent, classify_intent
 from oppie.llm import create_llm_provider
 from oppie.session import Session
@@ -51,8 +52,22 @@ def handle_prompt(ctx: click.Context, prompt: str) -> None:
 
 def _handle_ask(provider, config, prompt: str) -> None:
     """Route to ask behavior."""
+
+    async def _run():
+        result_event = None
+        async for event in generate_ask(provider, config, prompt):
+            if isinstance(event, AskResultEvent):
+                result_event = event
+        return result_event
+
     info('Thinking...')
-    result = asyncio.run(generate_ask(provider, config, prompt))
+    result_event = asyncio.run(_run())
+
+    if result_event is None:
+        error('No result received.')
+        raise SystemExit(1)
+
+    result = result_event.result
 
     console.print()
     console.print(result.answer)
@@ -106,8 +121,21 @@ def _handle_plan(provider, config, prompt: str) -> None:
     """Route to plan behavior."""
     from oppie.plan import generate_plan
 
+    async def _run():
+        result_event = None
+        async for event in generate_plan(provider, config, prompt, save=False):
+            if isinstance(event, PlanResultEvent):
+                result_event = event
+        return result_event
+
     info('Generating plan...')
-    plan = asyncio.run(generate_plan(provider, config, prompt, save=False))
+    result_event = asyncio.run(_run())
+
+    if result_event is None:
+        error('No plan generated.')
+        raise SystemExit(1)
+
+    plan = result_event.plan
 
     console.print()
     console.print(f'[bold]Plan: {plan.instruction}[/bold]')

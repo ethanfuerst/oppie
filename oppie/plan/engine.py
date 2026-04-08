@@ -4,6 +4,7 @@ import re
 import time
 import uuid
 from collections import defaultdict
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -11,6 +12,12 @@ from pathlib import Path
 from oppie.artifacts import ArtifactStore, ArtifactType
 from oppie.config import OppieConfig
 from oppie.engine import EngineMode, run_engine
+from oppie.events import (
+    EngineEvent,
+    PlanOperationEvent,
+    PlanResultEvent,
+    TextDeltaEvent,
+)
 from oppie.llm import create_llm_provider
 from oppie.models.apply import ApplyResult, OperationResult, OperationStatus
 from oppie.models.drift import DriftResolution, DriftResult, FieldDrift
@@ -57,8 +64,8 @@ async def generate_plan(
     instruction: str,
     *,
     save: bool = True,
-) -> Plan:
-    """Generate a plan from a user instruction using the agent loop."""
+) -> AsyncGenerator[EngineEvent, None]:
+    """Generate a plan from a user instruction, yielding events."""
     logger.info('Generating plan for instruction: %r', instruction)
     home = provider.home
 
@@ -105,9 +112,12 @@ async def generate_plan(
     max_tokens = config.llm.max_tokens
     temperature = config.llm.temperature
 
-    # 4. Run agent loop (research -> propose -> summary)
+    # 4. Run agent loop — re-yield events, collect operations
+    operations: list[Operation] = []
+    text_parts: list[str] = []
+
     async with llm:
-        result = await run_engine(
+        async for event in run_engine(
             prompt=user_prompt,
             tools=all_tools,
             llm=llm,
@@ -117,9 +127,12 @@ async def generate_plan(
             max_tokens=max_tokens,
             temperature=temperature,
             system_parts=system_parts_dicts,
-        )
-
-    operations = result.operations
+        ):
+            if isinstance(event, PlanOperationEvent):
+                operations.append(event.operation)
+            elif isinstance(event, TextDeltaEvent):
+                text_parts.append(event.text)
+            yield event
 
     # 5. Preflight validation
     preflight_errors = _run_preflight(provider, operations)
@@ -129,8 +142,9 @@ async def generate_plan(
         risks.extend(preflight_errors)
 
     # Extract risks from the final text (LLM summary)
-    if result.text:
-        risks.append(result.text)
+    final_text = ''.join(text_parts)
+    if final_text:
+        risks.append(final_text)
 
     plan = Plan(
         instruction=instruction,
@@ -147,6 +161,20 @@ async def generate_plan(
         logger.info(
             'Plan %s saved with %d operations', plan.plan_id, len(plan.operations)
         )
+
+    yield PlanResultEvent(plan=plan)
+
+
+async def _consume_plan_generator(
+    events: AsyncGenerator[EngineEvent, None],
+) -> Plan:
+    """Consume a generate_plan() generator and return the Plan."""
+    plan = None
+    async for event in events:
+        if isinstance(event, PlanResultEvent):
+            plan = event.plan
+    if plan is None:
+        raise RuntimeError('generate_plan() did not yield PlanResultEvent')
     return plan
 
 
@@ -163,7 +191,9 @@ async def amend_plan(
     logger.info('Amending plan %s', plan_id)
     home = provider.home
     original = load_plan(home, plan_id)
-    new_plan = await generate_plan(provider, config, original.instruction)
+    new_plan = await _consume_plan_generator(
+        generate_plan(provider, config, original.instruction)
+    )
     new_plan.parent_plan_id = plan_id
     logger.debug('New plan %s (parent=%s)', new_plan.plan_id, plan_id)
     # Re-save with parent_plan_id set

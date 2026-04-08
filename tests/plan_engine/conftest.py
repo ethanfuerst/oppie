@@ -64,24 +64,37 @@ def make_plan_mock_llm(operations_data):
         stop_reason='end_turn',
     )
 
-    # Step 3: summary
-    summary_response = LLMResponse(
-        text='Plan complete.',
-        json=None,
-        usage=TokenUsage(60, 30),
-        tool_calls=[],
-        stop_reason='end_turn',
-    )
-
+    # Step 3: summary — text-only step uses stream()
     mock_llm = AsyncMock()
     mock_llm.generate = AsyncMock(
         side_effect=[
             research_response,
             propose_response,
             propose_done,
-            summary_response,
         ]
+    )
+    mock_llm.stream = AsyncMock(
+        return_value=_mock_stream_result('Plan complete.', TokenUsage(60, 30))
     )
     mock_llm.__aenter__ = AsyncMock(return_value=mock_llm)
     mock_llm.__aexit__ = AsyncMock(return_value=None)
     return mock_llm
+
+
+def _mock_stream_result(text: str, usage: TokenUsage | None = None):
+    """Create a mock StreamResult that yields chunks of text."""
+    chunks = list(text)
+
+    class MockStreamResult:
+        def __init__(self):
+            self.usage = usage
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            if chunks:
+                return chunks.pop(0)
+            raise StopAsyncIteration
+
+    return MockStreamResult()

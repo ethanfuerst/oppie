@@ -3,7 +3,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from oppie.engine import EngineMode, run_engine
+from oppie.engine import EngineMode, collect_engine_result, run_engine
+from oppie.events import StatsEvent
 from oppie.llm.base import LLMResponse, TokenUsage, ToolCallRequest
 from oppie.providers.local import LocalProvider
 from oppie.tools.base import ToolContext
@@ -23,6 +24,25 @@ def tool_context(home):
     return ToolContext(provider=provider, home=home, capabilities=provider.capabilities)
 
 
+def _mock_stream_result(text: str, usage: TokenUsage | None = None):
+    """Create a mock StreamResult that yields chunks of text."""
+    chunks = list(text)
+
+    class MockStreamResult:
+        def __init__(self):
+            self.usage = usage
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            if chunks:
+                return chunks.pop(0)
+            raise StopAsyncIteration
+
+    return MockStreamResult()
+
+
 @pytest.mark.asyncio
 async def test_ask_mode_runs_research_then_answer(tool_context):
     """Ask mode runs two steps: research then answer."""
@@ -33,29 +53,30 @@ async def test_ask_mode_runs_research_then_answer(tool_context):
         tool_calls=[],
         stop_reason='end_turn',
     )
-    answer_response = LLMResponse(
-        text='There are 0 open tickets.',
-        json=None,
-        usage=TokenUsage(100, 50),
-        tool_calls=[],
-        stop_reason='end_turn',
-    )
     mock_llm = AsyncMock()
-    mock_llm.generate = AsyncMock(side_effect=[research_response, answer_response])
+    mock_llm.generate = AsyncMock(side_effect=[research_response])
+    mock_llm.stream = AsyncMock(
+        return_value=_mock_stream_result(
+            'There are 0 open tickets.', TokenUsage(100, 50)
+        )
+    )
 
-    result = await run_engine(
-        prompt='how many tickets are open?',
-        tools=[SEARCH_TICKETS_TOOL, GET_TICKET_TOOL],
-        llm=mock_llm,
-        tool_context=tool_context,
-        mode=EngineMode.ASK,
-        system_prompt='You are oppie.',
+    result, events = await collect_engine_result(
+        run_engine(
+            prompt='how many tickets are open?',
+            tools=[SEARCH_TICKETS_TOOL, GET_TICKET_TOOL],
+            llm=mock_llm,
+            tool_context=tool_context,
+            mode=EngineMode.ASK,
+            system_prompt='You are oppie.',
+        )
     )
 
     assert result.text == 'There are 0 open tickets.'
     assert result.operations == []
     assert result.turns == 2
-    assert mock_llm.generate.call_count == 2
+    assert mock_llm.generate.call_count == 1
+    assert mock_llm.stream.call_count == 1
 
 
 @pytest.mark.asyncio
@@ -100,57 +121,57 @@ async def test_plan_mode_runs_three_steps(home, tool_context):
         tool_calls=[],
         stop_reason='end_turn',
     )
-    # Step 3 (summary): text only
-    summary_response = LLMResponse(
-        text='Closed T-1.',
-        json=None,
-        usage=TokenUsage(60, 30),
-        tool_calls=[],
-        stop_reason='end_turn',
-    )
     mock_llm = AsyncMock()
     mock_llm.generate = AsyncMock(
         side_effect=[
             research_response,
             propose_response,
             propose_done,
-            summary_response,
         ]
     )
+    # Step 3 (summary): text-only, uses stream()
+    mock_llm.stream = AsyncMock(
+        return_value=_mock_stream_result('Closed T-1.', TokenUsage(60, 30))
+    )
 
-    result = await run_engine(
-        prompt='close T-1',
-        tools=[SEARCH_TICKETS_TOOL, GET_TICKET_TOOL, PROPOSE_OPERATION_TOOL],
-        llm=mock_llm,
-        tool_context=tool_context,
-        mode=EngineMode.PLAN,
-        system_prompt='You are oppie.',
+    result, events = await collect_engine_result(
+        run_engine(
+            prompt='close T-1',
+            tools=[SEARCH_TICKETS_TOOL, GET_TICKET_TOOL, PROPOSE_OPERATION_TOOL],
+            llm=mock_llm,
+            tool_context=tool_context,
+            mode=EngineMode.PLAN,
+            system_prompt='You are oppie.',
+        )
     )
 
     assert len(result.operations) == 1
     assert result.operations[0].ticket_id == 'T-1'
     assert result.operations[0].after_value == 'done'
     assert result.text == 'Closed T-1.'
-    assert mock_llm.generate.call_count == 4
+    assert mock_llm.generate.call_count == 3
+    assert mock_llm.stream.call_count == 1
 
 
 @pytest.mark.asyncio
 async def test_engine_aggregates_token_usage(tool_context):
     """Token usage is summed across all steps."""
     r1 = LLMResponse(text='', json=None, usage=TokenUsage(100, 50), tool_calls=[])
-    r2 = LLMResponse(
-        text='answer', json=None, usage=TokenUsage(200, 100), tool_calls=[]
-    )
     mock_llm = AsyncMock()
-    mock_llm.generate = AsyncMock(side_effect=[r1, r2])
+    mock_llm.generate = AsyncMock(side_effect=[r1])
+    mock_llm.stream = AsyncMock(
+        return_value=_mock_stream_result('answer', TokenUsage(200, 100))
+    )
 
-    result = await run_engine(
-        prompt='question',
-        tools=[SEARCH_TICKETS_TOOL, GET_TICKET_TOOL],
-        llm=mock_llm,
-        tool_context=tool_context,
-        mode=EngineMode.ASK,
-        system_prompt='test',
+    result, events = await collect_engine_result(
+        run_engine(
+            prompt='question',
+            tools=[SEARCH_TICKETS_TOOL, GET_TICKET_TOOL],
+            llm=mock_llm,
+            tool_context=tool_context,
+            mode=EngineMode.ASK,
+            system_prompt='test',
+        )
     )
 
     assert result.usage.prompt_tokens == 300
@@ -187,33 +208,33 @@ async def test_ask_research_step_calls_search_tickets(home, tool_context):
         tool_calls=[],
         stop_reason='end_turn',
     )
-    # Answer step
-    answer = LLMResponse(
-        text='There is 1 open ticket: T-1.',
-        json=None,
-        usage=TokenUsage(100, 50),
-        tool_calls=[],
-        stop_reason='end_turn',
-    )
     mock_llm = AsyncMock()
-    mock_llm.generate = AsyncMock(side_effect=[search_call, research_done, answer])
+    mock_llm.generate = AsyncMock(side_effect=[search_call, research_done])
+    mock_llm.stream = AsyncMock(
+        return_value=_mock_stream_result(
+            'There is 1 open ticket: T-1.', TokenUsage(100, 50)
+        )
+    )
 
-    result = await run_engine(
-        prompt='how many tickets are open?',
-        tools=[SEARCH_TICKETS_TOOL, GET_TICKET_TOOL],
-        llm=mock_llm,
-        tool_context=tool_context,
-        mode=EngineMode.ASK,
-        system_prompt='You are oppie.',
+    result, events = await collect_engine_result(
+        run_engine(
+            prompt='how many tickets are open?',
+            tools=[SEARCH_TICKETS_TOOL, GET_TICKET_TOOL],
+            llm=mock_llm,
+            tool_context=tool_context,
+            mode=EngineMode.ASK,
+            system_prompt='You are oppie.',
+        )
     )
 
     assert result.text == 'There is 1 open ticket: T-1.'
-    assert mock_llm.generate.call_count == 3
+    assert mock_llm.generate.call_count == 2
     # Verify the tool result was passed back in messages (before the inject_prompt)
     second_call_messages = mock_llm.generate.call_args_list[1][1]['messages']
     tool_results_msg = [
         m for m in second_call_messages if m.get('role') == 'tool_results'
     ]
+
     assert len(tool_results_msg) == 1
     tool_content = json.loads(tool_results_msg[0]['results'][0]['content'])
     assert len(tool_content) == 1
@@ -249,24 +270,21 @@ async def test_ask_research_step_calls_get_ticket(home, tool_context):
         tool_calls=[],
         stop_reason='end_turn',
     )
-    # Answer step
-    answer = LLMResponse(
-        text='T-5 is blocked.',
-        json=None,
-        usage=TokenUsage(80, 40),
-        tool_calls=[],
-        stop_reason='end_turn',
-    )
     mock_llm = AsyncMock()
-    mock_llm.generate = AsyncMock(side_effect=[get_call, research_done, answer])
+    mock_llm.generate = AsyncMock(side_effect=[get_call, research_done])
+    mock_llm.stream = AsyncMock(
+        return_value=_mock_stream_result('T-5 is blocked.', TokenUsage(80, 40))
+    )
 
-    result = await run_engine(
-        prompt='what is the status of T-5?',
-        tools=[SEARCH_TICKETS_TOOL, GET_TICKET_TOOL],
-        llm=mock_llm,
-        tool_context=tool_context,
-        mode=EngineMode.ASK,
-        system_prompt='You are oppie.',
+    result, events = await collect_engine_result(
+        run_engine(
+            prompt='what is the status of T-5?',
+            tools=[SEARCH_TICKETS_TOOL, GET_TICKET_TOOL],
+            llm=mock_llm,
+            tool_context=tool_context,
+            mode=EngineMode.ASK,
+            system_prompt='You are oppie.',
+        )
     )
 
     assert result.text == 'T-5 is blocked.'
@@ -275,6 +293,7 @@ async def test_ask_research_step_calls_get_ticket(home, tool_context):
     tool_results_msg = [
         m for m in second_call_messages if m.get('role') == 'tool_results'
     ]
+
     assert len(tool_results_msg) == 1
     tool_content = json.loads(tool_results_msg[0]['results'][0]['content'])
     assert tool_content['id'] == 'T-5'
@@ -342,14 +361,6 @@ async def test_plan_research_step_multi_turn(home, tool_context):
         tool_calls=[],
         stop_reason='end_turn',
     )
-    # Summary step
-    summary = LLMResponse(
-        text='Closed T-1.',
-        json=None,
-        usage=TokenUsage(60, 30),
-        tool_calls=[],
-        stop_reason='end_turn',
-    )
     mock_llm = AsyncMock()
     mock_llm.generate = AsyncMock(
         side_effect=[
@@ -358,20 +369,56 @@ async def test_plan_research_step_multi_turn(home, tool_context):
             research_done,
             propose,
             propose_done,
-            summary,
         ]
     )
+    # Summary step
+    mock_llm.stream = AsyncMock(
+        return_value=_mock_stream_result('Closed T-1.', TokenUsage(60, 30))
+    )
 
-    result = await run_engine(
-        prompt='close open tickets',
-        tools=[SEARCH_TICKETS_TOOL, GET_TICKET_TOOL, PROPOSE_OPERATION_TOOL],
-        llm=mock_llm,
-        tool_context=tool_context,
-        mode=EngineMode.PLAN,
-        system_prompt='You are oppie.',
+    result, events = await collect_engine_result(
+        run_engine(
+            prompt='close open tickets',
+            tools=[SEARCH_TICKETS_TOOL, GET_TICKET_TOOL, PROPOSE_OPERATION_TOOL],
+            llm=mock_llm,
+            tool_context=tool_context,
+            mode=EngineMode.PLAN,
+            system_prompt='You are oppie.',
+        )
     )
 
     assert len(result.operations) == 1
     assert result.operations[0].ticket_id == 'T-1'
     assert result.text == 'Closed T-1.'
-    assert mock_llm.generate.call_count == 6
+    assert mock_llm.generate.call_count == 5
+    assert mock_llm.stream.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_stats_event_emitted_at_end(tool_context):
+    """StatsEvent is the last event and carries aggregated usage and turns."""
+    r1 = LLMResponse(text='', json=None, usage=TokenUsage(100, 50), tool_calls=[])
+    mock_llm = AsyncMock()
+    mock_llm.generate = AsyncMock(side_effect=[r1])
+    mock_llm.stream = AsyncMock(
+        return_value=_mock_stream_result('answer', TokenUsage(200, 100))
+    )
+
+    result, events = await collect_engine_result(
+        run_engine(
+            prompt='question',
+            tools=[SEARCH_TICKETS_TOOL, GET_TICKET_TOOL],
+            llm=mock_llm,
+            tool_context=tool_context,
+            mode=EngineMode.ASK,
+            system_prompt='test',
+        )
+    )
+
+    stats_events = [e for e in events if isinstance(e, StatsEvent)]
+    assert len(stats_events) == 1
+    assert stats_events[0] is events[-1]
+    assert stats_events[0].usage.prompt_tokens == 300
+    assert stats_events[0].usage.completion_tokens == 150
+    assert stats_events[0].turns == 2
+    assert stats_events[0].duration > 0
