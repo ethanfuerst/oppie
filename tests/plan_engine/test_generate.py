@@ -9,6 +9,7 @@ from oppie.config import (
     OppieConfig,
     ProviderConfig,
 )
+from oppie.events import PlanResultEvent
 from oppie.llm import LLMNotConfiguredError
 from oppie.models.plan import PlanStatus
 from oppie.plan import amend_plan, generate_plan, load_plan
@@ -20,6 +21,15 @@ PLAN_TEST_CONFIG = OppieConfig(
     provider=ProviderConfig(type='local'),
     llm=LLMConfig(backend=LLMBackend.OPENAI_COMPATIBLE, model='test'),
 )
+
+
+async def _consume_plan(provider, config, instruction, *, save=True):
+    """Consume generate_plan() generator and return the Plan."""
+    plan = None
+    async for event in generate_plan(provider, config, instruction, save=save):
+        if isinstance(event, PlanResultEvent):
+            plan = event.plan
+    return plan
 
 
 @pytest.mark.asyncio
@@ -39,7 +49,7 @@ async def test_generate_plan_llm_path(home, provider):
     )
 
     with patch('oppie.plan.engine.create_llm_provider', return_value=mock_llm):
-        plan = await generate_plan(provider, PLAN_TEST_CONFIG, 'close T-1')
+        plan = await _consume_plan(provider, PLAN_TEST_CONFIG, 'close T-1')
 
     assert plan.status == PlanStatus.SAVED
     assert len(plan.operations) == 1
@@ -48,6 +58,7 @@ async def test_generate_plan_llm_path(home, provider):
     assert plan.ticket_snapshots is not None
     assert 'T-1' in plan.ticket_snapshots
     loaded = load_plan(home, plan.plan_id)
+
     assert loaded.plan_id == plan.plan_id
 
 
@@ -65,7 +76,7 @@ async def test_generate_plan_llm_with_preflight_errors(home, provider):
     )
 
     with patch('oppie.plan.engine.create_llm_provider', return_value=mock_llm):
-        plan = await generate_plan(provider, PLAN_TEST_CONFIG, 'close T-MISSING')
+        plan = await _consume_plan(provider, PLAN_TEST_CONFIG, 'close T-MISSING')
 
     assert len(plan.operations) == 0
 
@@ -79,7 +90,10 @@ async def test_generate_plan_no_llm_raises(home, provider):
         ),
         pytest.raises(LLMNotConfiguredError),
     ):
-        await generate_plan(provider, PLAN_TEST_CONFIG, 'close all tickets')
+        async for _event in generate_plan(
+            provider, PLAN_TEST_CONFIG, 'close all tickets'
+        ):
+            pass
 
 
 @pytest.mark.asyncio
@@ -99,7 +113,7 @@ async def test_amend_links_parent(home, provider):
     )
 
     with patch('oppie.plan.engine.create_llm_provider', return_value=mock_llm):
-        original = await generate_plan(provider, PLAN_TEST_CONFIG, 'close all tickets')
+        original = await _consume_plan(provider, PLAN_TEST_CONFIG, 'close all tickets')
 
     mock_llm_2 = make_plan_mock_llm(
         [
@@ -116,6 +130,7 @@ async def test_amend_links_parent(home, provider):
 
     assert amended.parent_plan_id == original.plan_id
     loaded = load_plan(home, amended.plan_id)
+
     assert loaded.parent_plan_id == original.plan_id
 
 

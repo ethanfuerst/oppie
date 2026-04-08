@@ -1,6 +1,7 @@
 import json
 import logging
 import time
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -8,6 +9,7 @@ from pathlib import Path
 from oppie.artifacts import ArtifactStore, ArtifactType
 from oppie.config import OppieConfig
 from oppie.engine import EngineMode, run_engine
+from oppie.events import AskResultEvent, EngineEvent, StatsEvent, TextDeltaEvent
 from oppie.llm import create_llm_provider
 from oppie.llm.base import TokenUsage
 from oppie.prompts.builder import PromptMode, build_system_prompt, flatten_system_prompt
@@ -35,8 +37,8 @@ async def generate_ask(
     provider: TicketProvider,
     config: OppieConfig,
     question: str,
-) -> AskResult:
-    """Answer a question about tickets using the agent loop."""
+) -> AsyncGenerator[EngineEvent, None]:
+    """Answer a question about tickets, yielding events."""
     logger.info('Generating ask for question: %r', question)
     home = provider.home
     start = time.monotonic()
@@ -72,8 +74,11 @@ async def generate_ask(
     max_tokens = config.llm.max_tokens
     temperature = config.llm.temperature
 
+    text_parts: list[str] = []
+    result_usage: TokenUsage | None = None
+
     async with llm:
-        result = await run_engine(
+        async for event in run_engine(
             prompt=user_prompt,
             tools=all_tools,
             llm=llm,
@@ -83,20 +88,28 @@ async def generate_ask(
             max_tokens=max_tokens,
             temperature=temperature,
             system_parts=system_parts_dicts,
-        )
+        ):
+            if isinstance(event, TextDeltaEvent):
+                text_parts.append(event.text)
+            elif isinstance(event, StatsEvent):
+                result_usage = event.usage
+            yield event
 
     duration = time.monotonic() - start
+    answer = ''.join(text_parts)
     run_id = generate_run_id()
-    artifact_path = _save_ask_artifact(home, question, result.text, run_id)
-    _append_run_log(home, run_id, duration, artifact_path, result.usage)
+    artifact_path = _save_ask_artifact(home, question, answer, run_id)
+    _append_run_log(home, run_id, duration, artifact_path, result_usage)
 
-    return AskResult(
-        answer=result.text,
+    ask_result = AskResult(
+        answer=answer,
         artifact_path=artifact_path,
         run_id=run_id,
         duration=duration,
-        usage=result.usage,
+        usage=result_usage,
     )
+
+    yield AskResultEvent(result=ask_result)
 
 
 def _save_ask_artifact(

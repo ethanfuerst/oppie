@@ -1,9 +1,11 @@
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 from click.testing import CliRunner
 
+from oppie.ask.engine import AskResult
 from oppie.cli import cli
+from oppie.events import AskResultEvent
 from oppie.intent import Intent
 from oppie.models.operation import Operation
 from oppie.session import Session
@@ -33,6 +35,19 @@ def test_prompt_requires_llm_config(tmp_path):
     assert 'LLM is not configured' in result.output
 
 
+async def _mock_ask_generator(*args, **kwargs):
+    """Async generator that yields a single AskResultEvent."""
+    yield AskResultEvent(
+        result=AskResult(
+            answer='I handle project management.',
+            artifact_path=None,
+            run_id='test-run',
+            duration=1.0,
+            usage=None,
+        )
+    )
+
+
 def test_prompt_unmatched_routes_to_ask(tmp_path):
     """Unmatched prompts default to QUESTION and route to ask."""
     home = setup_cli_instance(tmp_path)
@@ -42,15 +57,10 @@ def test_prompt_unmatched_routes_to_ask(tmp_path):
         'oppie.cli.commands.prompt.classify_intent', new_callable=AsyncMock
     ) as mock_classify:
         mock_classify.return_value = Intent.QUESTION
-        with patch('oppie.cli.commands.prompt.generate_ask') as mock_ask:
-            mock_ask.return_value = MagicMock(
-                answer='I handle project management.',
-                artifact_path=None,
-                run_id='test-run',
-                duration=1.0,
-                usage=None,
-            )
-
+        with patch(
+            'oppie.cli.commands.prompt.generate_ask',
+            side_effect=_mock_ask_generator,
+        ) as mock_ask:
             result = runner.invoke(cli, ['--home', str(home), 'hello there'])
 
     assert result.exit_code == 0
