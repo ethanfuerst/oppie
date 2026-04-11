@@ -45,6 +45,9 @@ def test_concrete_provider_implements_interface(tmp_path):
         def apply(self, operations: list[Operation]) -> list[OperationResult]:
             return []
 
+        def test_connection(self) -> None:
+            pass
+
     provider = FakeProvider()
 
     assert provider.version == 'v1'

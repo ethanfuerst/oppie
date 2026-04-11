@@ -109,3 +109,7 @@ class ExternalProvider(TicketProvider, ABC):
     @abstractmethod
     def apply(self, operations: list[Operation]) -> list[OperationResult]:
         """Apply mutations to external system (outbox flush)."""
+
+    @abstractmethod
+    def test_connection(self) -> None:
+        """Test connectivity to external system. Raise on failure."""

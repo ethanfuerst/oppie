@@ -100,9 +100,11 @@ from oppie.cli.commands.amend import amend  # noqa: E402
 from oppie.cli.commands.apply import apply  # noqa: E402
 from oppie.cli.commands.config_cmd import config  # noqa: E402
 from oppie.cli.commands.context import context  # noqa: E402
+from oppie.cli.commands.health import health  # noqa: E402
 from oppie.cli.commands.history import history  # noqa: E402
 from oppie.cli.commands.init import init  # noqa: E402
 from oppie.cli.commands.prompt import handle_prompt  # noqa: E402
+from oppie.cli.commands.repair import repair  # noqa: E402
 from oppie.cli.commands.show import show  # noqa: E402
 from oppie.cli.commands.state import state  # noqa: E402
 
@@ -114,3 +116,5 @@ cli.add_command(apply)
 cli.add_command(show)
 cli.add_command(history)
 cli.add_command(state)
+cli.add_command(health)
+cli.add_command(repair)

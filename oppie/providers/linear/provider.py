@@ -507,6 +507,10 @@ class LinearProvider(ExternalProvider):
         logger.debug('Outbox flush complete: %d failed', len(failed_ops))
         return results
 
+    def test_connection(self) -> None:
+        """Test Linear API connectivity with a lightweight query."""
+        self._graphql('{ viewer { id } }')
+
     def _graphql(self, query: str, variables: dict | None = None) -> dict:
         """Execute a GraphQL request. Raise on HTTP or GraphQL errors."""
         payload: dict[str, Any] = {'query': query}
