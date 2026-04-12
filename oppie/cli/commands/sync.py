@@ -48,7 +48,7 @@ def sync(ctx: click.Context, full: bool, no_flush: bool) -> None:
     # Deferred imports: only after extras check so missing httpx doesn't crash.
     import httpx
 
-    from oppie.providers.linear import LinearProvider
+    from oppie.providers.factory import create_external_provider
     from oppie.providers.linear.provider import (
         LinearAPIError,
         LinearAuthError,
@@ -57,7 +57,7 @@ def sync(ctx: click.Context, full: bool, no_flush: bool) -> None:
     from oppie.providers.local import LocalProvider
 
     cache = LocalProvider(home)
-    provider = LinearProvider(home=home, cache=cache, config=config.provider)
+    provider = create_external_provider(config, home=home, cache=cache)
 
     try:
         if not no_flush:

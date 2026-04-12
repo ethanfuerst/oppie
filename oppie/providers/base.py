@@ -113,3 +113,10 @@ class ExternalProvider(TicketProvider, ABC):
     @abstractmethod
     def test_connection(self) -> None:
         """Test connectivity to external system. Raise on failure."""
+
+    @abstractmethod
+    def flush_outbox(self) -> list[OperationResult]:
+        """Apply queued outbox operations and return per-operation results."""
+
+    def close(self) -> None:
+        """Release provider resources. Default no-op; override if needed."""
