@@ -20,7 +20,14 @@ from oppie.models.capabilities import ProviderCapabilities
 from oppie.models.operation import Operation
 from oppie.models.sync import SyncResult
 from oppie.models.ticket import Ticket, TicketMetadata, TicketSource
-from oppie.providers.base import ExternalProvider, TicketProvider
+from oppie.providers.base import (
+    ExternalProvider,
+    ProviderAPIError,
+    ProviderAuthError,
+    ProviderNetworkError,
+    ProviderRateLimitError,
+    TicketProvider,
+)
 
 if TYPE_CHECKING:
     from oppie.providers.linear.config import LinearProviderConfig
@@ -157,7 +164,7 @@ query TeamMembers($teamId: String!) {
 """
 
 
-class LinearAPIError(Exception):
+class LinearAPIError(ProviderAPIError):
     """Raised on Linear GraphQL API errors."""
 
     def __init__(self, message: str, status_code: int | None = None) -> None:
@@ -165,18 +172,18 @@ class LinearAPIError(Exception):
         self.status_code = status_code
 
 
-class LinearAuthError(LinearAPIError):
+class LinearAuthError(ProviderAuthError, LinearAPIError):
     """Raised on 401 Unauthorized."""
 
     pass
 
 
-class LinearRateLimitError(LinearAPIError):
+class LinearRateLimitError(ProviderRateLimitError, LinearAPIError):
     """Raised on 429 Too Many Requests."""
 
     def __init__(self, message: str, retry_after: float | None = None) -> None:
-        super().__init__(message, status_code=429)
-        self.retry_after = retry_after
+        ProviderRateLimitError.__init__(self, message, retry_after=retry_after)
+        LinearAPIError.__init__(self, message, status_code=429)
 
 
 class LinearProvider(ExternalProvider):
@@ -518,7 +525,12 @@ class LinearProvider(ExternalProvider):
             payload['variables'] = variables
 
         logger.debug('GraphQL request (%d bytes)', len(json.dumps(payload)))
-        resp = self._client.post('', json=payload)
+        try:
+            resp = self._client.post('', json=payload)
+        except httpx.HTTPError as exc:
+            raise ProviderNetworkError(
+                f'Network error contacting Linear: {exc}'
+            ) from exc
         logger.debug('GraphQL response: %d status', resp.status_code)
 
         if resp.status_code == 401:
@@ -529,7 +541,10 @@ class LinearProvider(ExternalProvider):
                 'Rate limited by Linear API.',
                 retry_after=float(retry_after) if retry_after else None,
             )
-        resp.raise_for_status()
+        try:
+            resp.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise ProviderNetworkError(f'HTTP error from Linear: {exc}') from exc
 
         body = resp.json()
         if 'errors' in body:

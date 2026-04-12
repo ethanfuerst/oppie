@@ -5,6 +5,12 @@ from oppie.cli import cli
 from oppie.models.apply import OperationResult, OperationStatus
 from oppie.models.operation import Operation
 from oppie.models.sync import SyncResult
+from oppie.providers.base import (
+    ProviderAPIError,
+    ProviderAuthError,
+    ProviderNetworkError,
+    ProviderRateLimitError,
+)
 from tests.cli.conftest import setup_cli_instance
 
 
@@ -202,10 +208,10 @@ def test_sync_rate_limit_exit_3(tmp_path):
 
 
 def test_sync_network_error_exit_4(tmp_path):
-    import httpx
+    from oppie.providers.base import ProviderNetworkError
 
     home = setup_linear_instance(tmp_path)
-    FakeLinearProvider.sync_exc = httpx.ConnectError('unreachable')
+    FakeLinearProvider.sync_exc = ProviderNetworkError('unreachable')
 
     result = CliRunner().invoke(cli, ['--home', str(home), 'sync'])
 
@@ -222,7 +228,7 @@ def test_sync_api_error_exit_5(tmp_path):
     result = CliRunner().invoke(cli, ['--home', str(home), 'sync'])
 
     assert result.exit_code == 5
-    assert 'Linear error' in result.output
+    assert 'Provider error' in result.output
 
 
 def test_sync_closes_provider_on_error(tmp_path):
@@ -249,3 +255,21 @@ def test_sync_reports_result_errors(tmp_path):
 
     assert result.exit_code == 0
     assert 'partial failure' in result.output
+
+
+@pytest.mark.parametrize(
+    'exc, expected_exit',
+    [
+        (ProviderAuthError('nope'), 2),
+        (ProviderRateLimitError('slow', retry_after=2.0), 3),
+        (ProviderNetworkError('down'), 4),
+        (ProviderAPIError('boom'), 5),
+    ],
+)
+def test_sync_abstract_exit_codes(tmp_path, exc, expected_exit):
+    home = setup_linear_instance(tmp_path)
+    FakeLinearProvider.sync_exc = exc
+
+    result = CliRunner().invoke(cli, ['--home', str(home), 'sync'])
+
+    assert result.exit_code == expected_exit

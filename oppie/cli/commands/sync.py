@@ -46,14 +46,13 @@ def sync(ctx: click.Context, full: bool, no_flush: bool) -> None:
         raise SystemExit(1)
 
     # Deferred imports: only after extras check so missing httpx doesn't crash.
-    import httpx
-
-    from oppie.providers.factory import create_external_provider
-    from oppie.providers.linear.provider import (
-        LinearAPIError,
-        LinearAuthError,
-        LinearRateLimitError,
+    from oppie.providers.base import (
+        ProviderAPIError,
+        ProviderAuthError,
+        ProviderNetworkError,
+        ProviderRateLimitError,
     )
+    from oppie.providers.factory import create_external_provider
     from oppie.providers.local import LocalProvider
 
     cache = LocalProvider(home)
@@ -64,19 +63,19 @@ def sync(ctx: click.Context, full: bool, no_flush: bool) -> None:
             _flush(provider)
 
         _pull(provider, full=full)
-    except LinearAuthError as exc:
+    except ProviderAuthError as exc:
         error(f'Authentication failed: {exc}')
         console.print('Run [bold]oppie config[/bold] to update your Linear API key.')
         raise SystemExit(2) from None
-    except LinearRateLimitError as exc:
+    except ProviderRateLimitError as exc:
         retry = f' Retry after {exc.retry_after:.0f}s.' if exc.retry_after else ''
-        error(f'Rate limited by Linear.{retry}')
+        error(f'Rate limited by provider.{retry}')
         raise SystemExit(3) from None
-    except httpx.HTTPError as exc:
+    except ProviderNetworkError as exc:
         error(f'Network error: {exc}')
         raise SystemExit(4) from None
-    except LinearAPIError as exc:
-        error(f'Linear error: {exc}')
+    except ProviderAPIError as exc:
+        error(f'Provider error: {exc}')
         raise SystemExit(5) from None
     finally:
         provider.close()
