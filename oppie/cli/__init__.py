@@ -107,6 +107,7 @@ from oppie.cli.commands.prompt import handle_prompt  # noqa: E402
 from oppie.cli.commands.repair import repair  # noqa: E402
 from oppie.cli.commands.show import show  # noqa: E402
 from oppie.cli.commands.state import state  # noqa: E402
+from oppie.cli.commands.sync import sync  # noqa: E402
 
 cli.add_command(init)
 cli.add_command(config)
@@ -118,3 +119,4 @@ cli.add_command(history)
 cli.add_command(state)
 cli.add_command(health)
 cli.add_command(repair)
+cli.add_command(sync)
