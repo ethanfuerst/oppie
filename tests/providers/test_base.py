@@ -48,10 +48,50 @@ def test_concrete_provider_implements_interface(tmp_path):
         def test_connection(self) -> None:
             pass
 
+        def flush_outbox(self) -> list[OperationResult]:
+            return []
+
     provider = FakeProvider()
 
     assert provider.version == 'v1'
     assert provider.capabilities.supports_sync is True
+    assert provider.close() is None
+
+
+def test_external_provider_subclass_missing_flush_outbox_cannot_instantiate(tmp_path):
+    class MissingFlush(ExternalProvider):
+        @property
+        def home(self) -> Path:
+            return tmp_path
+
+        @property
+        def version(self) -> str:
+            return 'v1'
+
+        @property
+        def capabilities(self) -> ProviderCapabilities:
+            return ProviderCapabilities()
+
+        def read_ticket(self, ticket_id: str) -> Ticket | None:
+            return None
+
+        def update_ticket(self, ticket_id: str, updates: dict) -> Ticket:
+            raise NotImplementedError
+
+        def list_tickets(self) -> list[Ticket]:
+            return []
+
+        def sync(self, checkpoint: str | None = None) -> SyncResult:
+            return SyncResult(tickets_upserted=0)
+
+        def apply(self, operations: list[Operation]) -> list[OperationResult]:
+            return []
+
+        def test_connection(self) -> None:
+            pass
+
+    with pytest.raises(TypeError):
+        MissingFlush()
 
 
 def test_search_tickets_default_filters_by_title(home, provider):

@@ -212,6 +212,9 @@ def test_check_outbox_pending(tmp_path, monkeypatch):
         def test_connection(self):
             pass
 
+        def flush_outbox(self):
+            return []
+
     result = check_outbox(home, provider=MockExternal())
 
     assert result.status == CheckStatus.WARNING
@@ -354,6 +357,9 @@ def test_check_provider_connectivity_ok(monkeypatch):
         def test_connection(self):
             pass
 
+        def flush_outbox(self):
+            return []
+
     result = check_provider_connectivity(MockExternal())
 
     assert result.status == CheckStatus.OK
@@ -392,6 +398,9 @@ def test_check_provider_connectivity_failed(monkeypatch):
 
         def test_connection(self):
             raise ConnectionError('network down')
+
+        def flush_outbox(self):
+            return []
 
     result = check_provider_connectivity(MockExternal())
 
