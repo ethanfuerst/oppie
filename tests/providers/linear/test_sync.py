@@ -1,6 +1,10 @@
 import json
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
+import httpx
+import pytest
+
+from oppie.providers.base import ProviderNetworkError
 from oppie.providers.linear.config import LinearProviderConfig
 from oppie.providers.linear.provider import LinearAPIError, LinearProvider
 from tests.providers.linear.conftest import make_cache, make_home
@@ -305,3 +309,30 @@ def test_sync_combines_filters(tmp_path):
     assert f['project'] == {'id': {'eq': 'proj-1'}}
     assert f['state'] == {'name': {'in': ['Todo']}}
     assert f['labels'] == {'name': {'in': ['bug']}}
+
+
+def test_graphql_wraps_httpx_error(tmp_path):
+    provider = _make_provider(tmp_path)
+    provider._client = MagicMock()
+    provider._client.post.side_effect = httpx.ConnectError('boom')
+
+    with pytest.raises(ProviderNetworkError) as exc_info:
+        provider._graphql('{ viewer { id } }')
+
+    assert 'Network error' in str(exc_info.value)
+    assert isinstance(exc_info.value.__cause__, httpx.ConnectError)
+
+
+def test_graphql_wraps_http_status_error(tmp_path):
+    provider = _make_provider(tmp_path)
+    provider._client = MagicMock()
+    resp = MagicMock()
+    resp.status_code = 500
+    resp.headers = {}
+    resp.raise_for_status.side_effect = httpx.HTTPStatusError(
+        '500', request=MagicMock(), response=resp
+    )
+    provider._client.post.return_value = resp
+
+    with pytest.raises(ProviderNetworkError):
+        provider._graphql('{ viewer { id } }')

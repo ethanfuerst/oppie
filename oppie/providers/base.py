@@ -120,3 +120,27 @@ class ExternalProvider(TicketProvider, ABC):
 
     def close(self) -> None:
         """Release provider resources. Default no-op; override if needed."""
+
+
+class ProviderError(Exception):
+    """Base class for all external provider errors."""
+
+
+class ProviderAuthError(ProviderError):
+    """Raised on authentication failure (e.g., 401)."""
+
+
+class ProviderRateLimitError(ProviderError):
+    """Raised when an external provider rate-limits the client."""
+
+    def __init__(self, message: str, retry_after: float | None = None) -> None:
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
+class ProviderNetworkError(ProviderError):
+    """Raised on transport-level failure (timeout, DNS, connection reset)."""
+
+
+class ProviderAPIError(ProviderError):
+    """Raised on application-level API errors (non-auth/rate-limit 4xx/5xx, GraphQL errors)."""
