@@ -6,7 +6,8 @@ import click
 
 from oppie.ask import generate_ask
 from oppie.cli.commands.apply import run_apply
-from oppie.cli.console import console, error, info, setup_provider
+from oppie.cli.console import console, error, info
+from oppie.cli.provider_setup import setup_provider
 from oppie.events import AskResultEvent, PlanResultEvent
 from oppie.intent import Intent, classify_intent
 from oppie.llm import create_llm_provider
@@ -39,15 +40,14 @@ def handle_prompt(ctx: click.Context, prompt: str) -> None:
     intent = asyncio.run(_classify())
     logger.info('Classified prompt as %s', intent.value)
 
-    provider, _ = setup_provider(home, no_sync=no_sync)
-
-    # Route
-    if intent == Intent.QUESTION:
-        _handle_ask(provider, config, prompt)
-    elif intent == Intent.INSTRUCTION:
-        _handle_plan(provider, config, prompt)
-    elif intent == Intent.APPLY:
-        _handle_apply(provider, prompt)
+    with setup_provider(home, config, no_sync=no_sync) as (provider, _):
+        # Route
+        if intent == Intent.QUESTION:
+            _handle_ask(provider, config, prompt)
+        elif intent == Intent.INSTRUCTION:
+            _handle_plan(provider, config, prompt)
+        elif intent == Intent.APPLY:
+            _handle_apply(provider, prompt)
 
 
 def _handle_ask(provider, config, prompt: str) -> None:

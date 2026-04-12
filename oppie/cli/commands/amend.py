@@ -3,7 +3,8 @@ import logging
 
 import click
 
-from oppie.cli.console import console, error, info, setup_provider, warn
+from oppie.cli.console import console, error, info, warn
+from oppie.cli.provider_setup import setup_provider
 from oppie.models.plan import PlanStatus
 from oppie.plan import amend_plan, load_plan
 from oppie.session import Session
@@ -38,33 +39,32 @@ def amend(ctx: click.Context, plan_id: str) -> None:
         if not click.confirm('Continue?', default=False):
             raise SystemExit(0)
 
-    provider, _ = setup_provider(home, no_sync=no_sync)
+    with setup_provider(home, config, no_sync=no_sync) as (provider, _):
+        # Amend
+        info('Re-generating plan with current ticket state...')
+        new_plan = asyncio.run(amend_plan(provider, config, plan_id))
 
-    # Amend
-    info('Re-generating plan with current ticket state...')
-    new_plan = asyncio.run(amend_plan(provider, config, plan_id))
+        console.print()
+        console.print(f'Amended plan (based on {plan_id}):')
+        console.print()
 
-    console.print()
-    console.print(f'Amended plan (based on {plan_id}):')
-    console.print()
+        # Show operations summary
+        for i, op in enumerate(new_plan.operations, 1):
+            console.print(
+                f'  {i}. {op.ticket_id}  {op.field}: {op.before_value} -> {op.after_value}'
+            )
+            console.print(f'     Rationale: {op.rationale}')
+        console.print()
 
-    # Show operations summary
-    for i, op in enumerate(new_plan.operations, 1):
-        console.print(
-            f'  {i}. {op.ticket_id}  {op.field}: {op.before_value} -> {op.after_value}'
-        )
-        console.print(f'     Rationale: {op.rationale}')
-    console.print()
+        # Interactive save
+        save = click.confirm('Save this plan?', default=False)
+        if not save:
+            console.print('Plan discarded.')
+            return
 
-    # Interactive save
-    save = click.confirm('Save this plan?', default=False)
-    if not save:
-        console.print('Plan discarded.')
-        return
+        console.print(f'Plan saved: [bold]{new_plan.plan_id}[/bold] (amends {plan_id})')
+        console.print(f'Next: [bold]oppie apply {new_plan.plan_id}[/bold]')
 
-    console.print(f'Plan saved: [bold]{new_plan.plan_id}[/bold] (amends {plan_id})')
-    console.print(f'Next: [bold]oppie apply {new_plan.plan_id}[/bold]')
-
-    # Update session
-    session = Session.load_latest(home) or Session.create(home)
-    session.set_active_plan(new_plan.plan_id)
+        # Update session
+        session = Session.load_latest(home) or Session.create(home)
+        session.set_active_plan(new_plan.plan_id)
