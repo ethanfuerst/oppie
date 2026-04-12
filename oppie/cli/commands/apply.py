@@ -5,7 +5,8 @@ import time
 import click
 
 from oppie.artifacts import ArtifactStore, ArtifactType
-from oppie.cli.console import console, error, info, setup_provider, success, warn
+from oppie.cli.console import console, error, info, success, warn
+from oppie.cli.provider_setup import setup_provider
 from oppie.models.apply import ApplyResult, OperationStatus
 from oppie.models.drift import DriftResolution, DriftResult
 from oppie.plan import PreApplyCheck, check_apply, execute_apply
@@ -27,6 +28,7 @@ logger = logging.getLogger(__name__)
 def apply(ctx: click.Context, plan_id: str | None, force: bool) -> None:
     """Apply a plan's operations to tickets."""
     home = ctx.obj['resolved_home']
+    config = ctx.obj['config']
     no_sync = ctx.obj.get('no_sync', False)
 
     # Resolve plan_id from session if not provided
@@ -38,9 +40,9 @@ def apply(ctx: click.Context, plan_id: str | None, force: bool) -> None:
             console.print('Provide a plan ID: [bold]oppie apply <plan_id>[/bold]')
             raise SystemExit(1)
 
-    provider, sync_result = setup_provider(home, no_sync=no_sync)
-    sync_duration = sync_result.duration if sync_result.synced else None
-    run_apply(provider, plan_id, force=force, sync_duration=sync_duration)
+    with setup_provider(home, config, no_sync=no_sync) as (provider, sync_result):
+        sync_duration = sync_result.duration if sync_result.synced else None
+        run_apply(provider, plan_id, force=force, sync_duration=sync_duration)
 
 
 def run_apply(
