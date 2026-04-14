@@ -272,8 +272,8 @@ class LinearProvider(ExternalProvider):
     ) -> None:
         if httpx is None:
             raise ImportError(
-                'Linear provider requires the linear extra. '
-                'Install with: pip install oppie[linear]'
+                "Linear provider requires the 'linear' extra. "
+                "Install with: pip install 'oppie[linear]'"
             )
         self._home = home
         self._cache = cache

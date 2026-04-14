@@ -214,12 +214,13 @@ def check_missing_deps(config: object | None) -> CheckResult:
         and not extras['linear']
     ):
         warnings.append(
-            'Linear provider configured but httpx not installed'
-            ' (pip install oppie[linear])'
+            "Linear provider configured but the 'linear' extra is not installed"
+            " (pip install 'oppie[linear]')"
         )
     if config and hasattr(config, 'llm') and config.llm and not extras['llm']:  # type: ignore[union-attr]
         warnings.append(
-            'LLM configured but httpx not installed (pip install oppie[llm])'
+            "LLM configured but the 'llm' extra is not installed"
+            " (pip install 'oppie[llm]')"
         )
 
     if warnings:

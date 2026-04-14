@@ -141,4 +141,4 @@ def test_init_fails_without_llm_extra(tmp_path, monkeypatch):
     )
 
     assert result.exit_code != 0
-    assert 'pip install oppie[llm]' in result.output
+    assert "pip install 'oppie[llm]'" in result.output

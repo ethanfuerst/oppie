@@ -4,7 +4,7 @@ import logging
 from contextlib import ExitStack, contextmanager
 from typing import TYPE_CHECKING
 
-from oppie.cli.console import error, info, success, warn
+from oppie.cli.console import console, error, info, success, warn
 from oppie.cli.extras import extras_available
 from oppie.config import ProviderType
 from oppie.providers.local import LocalProvider
@@ -60,10 +60,8 @@ def _build_linear_provider(
     config: OppieConfig, home: Path, stack: ExitStack
 ) -> TicketProvider:
     if not extras_available().get('linear'):
-        error(
-            'Linear provider requires the linear extra. '
-            r"Install with: pip install 'oppie\[linear]'"
-        )
+        error("Linear provider requires the 'linear' extra.")
+        console.print(r"Install with: [bold]pip install 'oppie\[linear]'[/bold]")
         raise SystemExit(1)
 
     cache = LocalProvider(home)

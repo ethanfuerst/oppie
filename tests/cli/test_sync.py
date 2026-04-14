@@ -108,7 +108,7 @@ def test_sync_linear_missing_extra(tmp_path, monkeypatch):
     result = CliRunner().invoke(cli, ['--home', str(home), 'sync'])
 
     assert result.exit_code == 1
-    assert 'Linear extra is not installed' in result.output
+    assert "Linear sync requires the 'linear' extra" in result.output
     assert "pip install 'oppie[linear]'" in result.output
 
 
