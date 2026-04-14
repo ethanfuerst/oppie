@@ -32,8 +32,8 @@ def _graphql(api_key: str, query: str, variables: dict | None = None) -> dict:
     """Execute a GraphQL query against Linear. Raise on errors."""
     if httpx is None:
         raise ImportError(
-            'Linear provider requires the linear extra. '
-            'Install with: pip install oppie[linear]'
+            "Linear provider requires the 'linear' extra. "
+            "Install with: pip install 'oppie[linear]'"
         )
     payload: dict[str, Any] = {'query': query}
     if variables:

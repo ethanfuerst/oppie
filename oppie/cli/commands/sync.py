@@ -50,7 +50,7 @@ def sync(ctx: click.Context, full: bool, no_flush: bool) -> None:
         return
 
     if not extras_available().get('linear'):
-        error('Linear extra is not installed.')
+        error("Linear sync requires the 'linear' extra.")
         console.print(r"Install with: [bold]pip install 'oppie\[linear]'[/bold]")
         raise SystemExit(1)
 

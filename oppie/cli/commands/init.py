@@ -79,7 +79,8 @@ def init(ctx: click.Context) -> None:
 
     # Step 3: LLM backend (required)
     if not extras['llm']:
-        error(r'LLM backend requires httpx. Install with: pip install oppie\[llm]')
+        error("LLM backend requires the 'llm' extra.")
+        console.print(r"Install with: [bold]pip install 'oppie\[llm]'[/bold]")
         raise SystemExit(1)
     llm_config = _prompt_llm_config()
 

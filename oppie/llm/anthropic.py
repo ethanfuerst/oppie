@@ -38,8 +38,8 @@ class AnthropicProvider(LLMProvider):
     ) -> None:
         if httpx is None:
             raise ImportError(
-                'LLM backend requires the llm extra. '
-                'Install with: pip install oppie[llm]'
+                "LLM backend requires the 'llm' extra. "
+                "Install with: pip install 'oppie[llm]'"
             )
         self._model = model
         api_key = os.environ.get('ANTHROPIC_API_KEY', '')
