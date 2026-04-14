@@ -180,6 +180,31 @@ def test_linear_value_error_falls_back_to_cache(tmp_path, monkeypatch, capsys):
     assert 'no api key' in out
 
 
+def test_print_sync_success_false_suppresses_synced_line(tmp_path, capsys):
+    home = _setup_linear_instance(tmp_path)
+    config = load_oppie_config(home / 'config')
+
+    with setup_provider(home, config, print_sync_success=False) as (_, result):
+        assert result.synced is True
+
+    out = capsys.readouterr().out
+
+    assert 'Synced' not in out
+
+
+def test_print_sync_success_false_still_prints_error(tmp_path, capsys):
+    home = _setup_linear_instance(tmp_path)
+    config = load_oppie_config(home / 'config')
+    FakeLinearProvider.sync_exc = ProviderNetworkError('boom')
+
+    with setup_provider(home, config, print_sync_success=False) as (_, result):
+        assert result.synced is False
+
+    out = capsys.readouterr().out
+
+    assert 'Sync failed' in out
+
+
 def test_unsupported_provider_type_raises(tmp_path, monkeypatch):
     home = setup_cli_instance(tmp_path)
     config = load_oppie_config(home / 'config')

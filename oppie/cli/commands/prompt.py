@@ -6,11 +6,12 @@ import click
 
 from oppie.ask import generate_ask
 from oppie.cli.commands.apply import run_apply
-from oppie.cli.console import console, error, info
+from oppie.cli.console import console, error
 from oppie.cli.provider_setup import setup_provider
-from oppie.events import AskResultEvent, PlanResultEvent
+from oppie.cli.render import EventRenderer, RenderMode, render_sync
 from oppie.intent import Intent, classify_intent
 from oppie.llm import create_llm_provider
+from oppie.plan import generate_plan
 from oppie.session import Session
 
 logger = logging.getLogger(__name__)
@@ -18,19 +19,23 @@ logger = logging.getLogger(__name__)
 
 @click.command(hidden=True)
 @click.argument('prompt')
+@click.option(
+    '--force',
+    is_flag=True,
+    default=False,
+    help='Overwrite drifted values without prompting (apply only).',
+)
 @click.pass_context
-def handle_prompt(ctx: click.Context, prompt: str) -> None:
+def handle_prompt(ctx: click.Context, prompt: str, force: bool) -> None:
     """Handle a bare prompt — classify intent and route."""
     home = ctx.obj['resolved_home']
     config = ctx.obj['config']
     no_sync = ctx.obj.get('no_sync', False)
 
-    # LLM required for classification
     if config is None or config.llm is None:
         error('LLM is not configured. Run "oppie init" to set up an LLM backend.')
         raise SystemExit(1)
 
-    # Classify intent
     llm = create_llm_provider(config.llm)
 
     async def _classify() -> Intent:
@@ -40,72 +45,92 @@ def handle_prompt(ctx: click.Context, prompt: str) -> None:
     intent = asyncio.run(_classify())
     logger.info('Classified prompt as %s', intent.value)
 
-    with setup_provider(home, config, no_sync=no_sync) as (provider, _):
-        # Route
-        if intent == Intent.QUESTION:
-            _handle_ask(provider, config, prompt)
-        elif intent == Intent.INSTRUCTION:
-            _handle_plan(provider, config, prompt)
-        elif intent == Intent.APPLY:
-            _handle_apply(provider, prompt)
+    if intent == Intent.QUESTION:
+        _handle_ask(home, config, prompt, no_sync=no_sync)
+    elif intent == Intent.INSTRUCTION:
+        _handle_plan(home, config, prompt, no_sync=no_sync)
+    elif intent == Intent.APPLY:
+        _handle_apply(home, config, prompt, no_sync=no_sync, force=force)
 
 
-def _handle_ask(provider, config, prompt: str) -> None:
-    """Route to ask behavior."""
+def _handle_ask(home, config, prompt: str, *, no_sync: bool) -> None:
+    """Route to ask behavior using the event renderer."""
+    renderer = EventRenderer(mode=RenderMode.ASK)
+    with render_sync(renderer, home, config, no_sync=no_sync) as (provider, _):
+        asyncio.run(renderer.consume(generate_ask(provider, config, prompt)))
 
-    async def _run():
-        result_event = None
-        async for event in generate_ask(provider, config, prompt):
-            if isinstance(event, AskResultEvent):
-                result_event = event
-        return result_event
-
-    info('Thinking...')
-    result_event = asyncio.run(_run())
-
-    if result_event is None:
+    if renderer.ask_result is None:
         error('No result received.')
         raise SystemExit(1)
 
-    result = result_event.result
-
-    console.print()
-    console.print(result.answer)
-    console.print()
-
+    result = renderer.ask_result
     if result.artifact_path:
         console.print(f'Artifact: [dim]{result.artifact_path}[/dim]')
 
-    # Stats line
-    stats_parts = []
-    if result.usage:
-        total = result.usage.prompt_tokens + result.usage.completion_tokens
-        stats_parts.append(f'{total / 1000:.1f}k tokens')
-    stats_parts.append(f'{result.duration:.1f}s')
-    console.print(f'[dim]* {" \u00b7 ".join(stats_parts)}[/dim]')
-
-    # Update session
-    home = provider.home
     session = Session.load_latest(home) or Session.create(home)
     session.add_run_id(result.run_id)
+
+
+def _handle_plan(home, config, prompt: str, *, no_sync: bool) -> None:
+    """Route to plan behavior using the event renderer."""
+    renderer = EventRenderer(mode=RenderMode.PLAN)
+    with render_sync(renderer, home, config, no_sync=no_sync) as (provider, _):
+        asyncio.run(
+            renderer.consume(generate_plan(provider, config, prompt, save=False))
+        )
+
+    plan = renderer.plan
+    if plan is None:
+        error('No plan generated.')
+        raise SystemExit(1)
+
+    console.print()
+    console.print(f'[bold]Plan: {plan.instruction}[/bold]')
+
+    if not plan.operations:
+        console.print('No operations needed. No plan saved.')
+        return
+
+    console.print(f'[dim]({len(plan.operations)} operations)[/dim]')
+    if plan.risks:
+        console.print()
+        console.print('Risks:')
+        for risk in plan.risks:
+            console.print(f'  {risk}')
+    console.print()
+
+    if click.confirm('Review full plan?', default=False):
+        import json
+
+        console.print()
+        console.print(json.dumps(plan.to_dict(), indent=2))
+        console.print()
+
+    if not click.confirm('Save this plan?', default=False):
+        console.print('Plan discarded.')
+        return
+
+    plan.save(home)
+    console.print()
+    console.print(f'Plan saved: [bold]{plan.plan_id}[/bold]')
+    console.print(f'Next: [bold]oppie apply {plan.plan_id}[/bold]')
+
+    session = Session.load_latest(home) or Session.create(home)
+    session.set_active_plan(plan.plan_id)
 
 
 _PLAN_ID_RE = re.compile(r'plan-([a-f0-9]+)', re.IGNORECASE)
 
 
-def _handle_apply(provider, prompt: str) -> None:
-    """Route to apply behavior — extract plan_id and force from prompt text."""
-    home = provider.home
+def _handle_apply(home, config, prompt: str, *, no_sync: bool, force: bool) -> None:
+    """Route to apply behavior — extract plan_id from prompt text or session."""
     prompt_lower = prompt.lower()
+    text_force = 'force' in prompt_lower or '--force' in prompt_lower
+    effective_force = force or text_force
 
-    # Extract force flag
-    force = 'force' in prompt_lower or '--force' in prompt_lower
-
-    # Extract plan_id from prompt text
     plan_id_match = _PLAN_ID_RE.search(prompt)
     plan_id = plan_id_match.group(1) if plan_id_match else None
 
-    # Fall back to session active plan
     if plan_id is None:
         session = Session.load_latest(home)
         plan_id = session.get_active_plan() if session else None
@@ -114,73 +139,6 @@ def _handle_apply(provider, prompt: str) -> None:
             console.print('  [bold]oppie "apply plan-abc123"[/bold]')
             raise SystemExit(1)
 
-    run_apply(provider, plan_id, force=force)
-
-
-def _handle_plan(provider, config, prompt: str) -> None:
-    """Route to plan behavior."""
-    from oppie.plan import generate_plan
-
-    async def _run():
-        result_event = None
-        async for event in generate_plan(provider, config, prompt, save=False):
-            if isinstance(event, PlanResultEvent):
-                result_event = event
-        return result_event
-
-    info('Generating plan...')
-    result_event = asyncio.run(_run())
-
-    if result_event is None:
-        error('No plan generated.')
-        raise SystemExit(1)
-
-    plan = result_event.plan
-
-    console.print()
-    console.print(f'[bold]Plan: {plan.instruction}[/bold]')
-    console.print()
-
-    if not plan.operations:
-        console.print('No operations needed. No plan saved.')
-        return
-
-    console.print(f'Operations ({len(plan.operations)}):')
-    console.print()
-    for i, op in enumerate(plan.operations, 1):
-        console.print(
-            f'  {i}. {op.ticket_id}  {op.field}: {op.before_value} -> {op.after_value}'
-        )
-        console.print(f'     Rationale: {op.rationale}')
-    console.print()
-
-    if plan.risks:
-        console.print('Risks:')
-        for risk in plan.risks:
-            console.print(f'  {risk}')
-        console.print()
-
-    # Interactive: review full plan
-    review = click.confirm('Review full plan?', default=False)
-    if review:
-        import json
-
-        console.print()
-        console.print(json.dumps(plan.to_dict(), indent=2))
-        console.print()
-
-    # Interactive: save plan
-    save = click.confirm('Save this plan?', default=False)
-    if not save:
-        console.print('Plan discarded.')
-        return
-
-    plan.save(provider.home)
-    console.print()
-    console.print(f'Plan saved: [bold]{plan.plan_id}[/bold]')
-    console.print(f'Next: [bold]oppie apply {plan.plan_id}[/bold]')
-
-    # Update session
-    home = provider.home
-    session = Session.load_latest(home) or Session.create(home)
-    session.set_active_plan(plan.plan_id)
+    with setup_provider(home, config, no_sync=no_sync) as (provider, sync_result):
+        sync_duration = sync_result.duration if sync_result.synced else None
+        run_apply(provider, plan_id, force=effective_force, sync_duration=sync_duration)
