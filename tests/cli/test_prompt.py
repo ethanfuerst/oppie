@@ -151,8 +151,8 @@ def test_prompt_apply_cancelled(tmp_path):
     assert 'Apply cancelled' in result.output
 
 
-def test_prompt_apply_force_flag(tmp_path):
-    """Force flag is extracted from prompt text."""
+def test_prompt_apply_force_in_text(tmp_path):
+    """Force keyword in prompt text still triggers force apply."""
     home = setup_cli_instance(tmp_path)
     ticket = make_ticket('T-1', status='open')
     write_ticket(home, ticket)
@@ -163,8 +163,37 @@ def test_prompt_apply_force_flag(tmp_path):
     with _mock_classify_as_apply():
         result = runner.invoke(
             cli,
-            ['--home', str(home), f'apply plan-{plan.plan_id} --force'],
+            ['--home', str(home), f'apply plan-{plan.plan_id} force'],
             input='y\n',
         )
 
     assert result.exit_code == 0
+
+
+def test_prompt_apply_force_via_flag(tmp_path):
+    """--force flag on handle_prompt threads through to apply."""
+    home = setup_cli_instance(tmp_path)
+    ticket = make_ticket('T-1', status='open')
+    write_ticket(home, ticket)
+    ops = [Operation('T-1', 'status', 'open', 'done', 'closing')]
+    plan = make_and_save_plan(home, ops, checked=True)
+
+    runner = CliRunner()
+    with _mock_classify_as_apply():
+        result = runner.invoke(
+            cli,
+            ['--home', str(home), f'apply plan-{plan.plan_id}', '--force'],
+            input='y\n',
+        )
+
+    assert result.exit_code == 0
+
+
+def test_bare_oppie_prints_help_and_tui_hint(tmp_path):
+    """Bare `oppie` (no args, no subcommand) prints help and TUI install hint."""
+    runner = CliRunner()
+    result = runner.invoke(cli, ['--home', str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert 'Usage:' in result.output
+    assert 'oppie[tui]' in result.output
