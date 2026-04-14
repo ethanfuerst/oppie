@@ -9,7 +9,7 @@ from oppie.cli.commands.apply import run_apply
 from oppie.cli.console import console, error
 from oppie.cli.provider_setup import setup_provider
 from oppie.cli.render import EventRenderer, RenderMode, render_sync
-from oppie.intent import Intent, classify_intent
+from oppie.intent import Intent, IntentClassificationError, classify_intent
 from oppie.llm import create_llm_provider
 from oppie.plan import generate_plan
 from oppie.session import Session
@@ -42,7 +42,13 @@ def handle_prompt(ctx: click.Context, prompt: str, force: bool) -> None:
         async with llm:
             return await classify_intent(prompt, llm)
 
-    intent = asyncio.run(_classify())
+    try:
+        intent = asyncio.run(_classify())
+    except IntentClassificationError:
+        console.print('Could not determine intent. Please be more specific:')
+        console.print('  [dim]"what bugs are open?"         (question)[/dim]')
+        console.print('  [dim]"triage the open bugs"        (instruction)[/dim]')
+        return
     logger.info('Classified prompt as %s', intent.value)
 
     if intent == Intent.QUESTION:
@@ -87,17 +93,19 @@ def _handle_plan(home, config, prompt: str, *, no_sync: bool) -> None:
     console.print()
     console.print(f'[bold]Plan: {plan.instruction}[/bold]')
 
-    if not plan.operations:
-        console.print('No operations needed. No plan saved.')
-        return
+    if plan.operations:
+        console.print(f'[dim]({len(plan.operations)} operations)[/dim]')
 
-    console.print(f'[dim]({len(plan.operations)} operations)[/dim]')
     if plan.risks:
         console.print()
         console.print('Risks:')
         for risk in plan.risks:
             console.print(f'  {risk}')
     console.print()
+
+    if not plan.operations:
+        console.print('No operations needed. No plan saved.')
+        return
 
     if click.confirm('Review full plan?', default=False):
         import json

@@ -16,12 +16,20 @@ class Intent(Enum):
     APPLY = 'apply'
 
 
+class IntentClassificationError(Exception):
+    """Raised when the classifier cannot determine intent."""
+
+
 async def classify_intent(
     prompt: str,
     llm: LLMProvider,
     max_tokens: int = 50,
 ) -> Intent:
-    """Classify intent using an LLM call. Returns Intent enum."""
+    """Classify intent using an LLM call. Returns Intent enum.
+
+    Raises IntentClassificationError if the classifier fails (exception,
+    missing `intent` field, or invalid label).
+    """
     messages = [
         {
             'role': 'system',
@@ -48,16 +56,22 @@ async def classify_intent(
         },
         'required': ['intent'],
     }
-    response = await llm.generate(
-        messages=messages,
-        response_schema=classify_schema,
-        max_tokens=max_tokens,
-        temperature=0.0,
-    )
-    if response.json and 'intent' in response.json:
-        try:
-            return Intent(response.json['intent'])
-        except ValueError:
-            pass
-    logger.warning('LLM classification failed, defaulting to question')
-    return Intent.QUESTION
+    try:
+        response = await llm.generate(
+            messages=messages,
+            response_schema=classify_schema,
+            max_tokens=max_tokens,
+            temperature=0.0,
+        )
+    except Exception as exc:
+        logger.warning('Intent classifier LLM call failed: %s', exc)
+        raise IntentClassificationError('LLM call failed') from exc
+
+    if not response.json or 'intent' not in response.json:
+        raise IntentClassificationError('classifier returned no intent field')
+    try:
+        return Intent(response.json['intent'])
+    except ValueError as exc:
+        raise IntentClassificationError(
+            f'classifier returned invalid label: {response.json.get("intent")!r}'
+        ) from exc

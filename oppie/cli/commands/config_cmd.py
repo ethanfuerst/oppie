@@ -2,7 +2,7 @@ import asyncio
 
 import click
 
-from oppie.cli.console import console, info, success
+from oppie.cli.console import console, error, info, success
 from oppie.cli.extras import extras_available
 from oppie.config import ProviderType
 from oppie.llm import create_llm_provider
@@ -29,15 +29,15 @@ def validate(ctx: click.Context) -> None:
         _print_check('Config file', str(config_path.relative_to(home)), 'ok')
     else:
         _print_check('Config file', 'oppie.yaml', 'MISSING')
-        raise click.ClickException(
-            "No configuration found. Run 'oppie init' to create an instance."
-        )
+        error("No configuration found. Run 'oppie init' to create an instance.")
+        raise SystemExit(1)
 
     # Load and validate config
     config = ctx.obj.get('config')
     if config is None:
         _print_check('Config validation', '', 'INVALID')
-        raise click.ClickException('Config loaded but is None.')
+        error('Config loaded but is None.')
+        raise SystemExit(1)
     _print_check('Config validation', '', 'ok')
 
     # Provider config

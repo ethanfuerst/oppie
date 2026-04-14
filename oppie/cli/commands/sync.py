@@ -32,6 +32,15 @@ def sync(ctx: click.Context, full: bool, no_flush: bool) -> None:
     sync; --full is a no-op in that case. If Linear rate-limits mid-pagination,
     some tickets may have been upserted but the checkpoint is not advanced —
     rerun to resume.
+
+    \b
+    Exit codes:
+      0  success
+      1  generic error (missing extra, local provider, etc.)
+      2  auth error
+      3  rate-limited
+      4  network error
+      5  provider API error
     """
     home = ctx.obj['resolved_home']
     config = ctx.obj['config']

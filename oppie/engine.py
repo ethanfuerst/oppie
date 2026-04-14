@@ -262,10 +262,12 @@ async def run_engine(
 
     total_usage = TokenUsage(prompt_tokens=0, completion_tokens=0)
     total_turns = 0
+    step_durations: dict[str, float] = {}
 
     for step in steps:
         logger.info('Engine step: %s', step.name)
         yield StepStartEvent(step_name=step.name)
+        step_start = time.monotonic()
         async for event in _run_step(
             step=step,
             messages=messages,
@@ -280,9 +282,15 @@ async def run_engine(
                 total_turns += event.turns
             else:
                 yield event
+        step_durations[step.name] = time.monotonic() - step_start
 
     duration = time.monotonic() - start
-    yield StatsEvent(usage=total_usage, turns=total_turns, duration=duration)
+    yield StatsEvent(
+        usage=total_usage,
+        turns=total_turns,
+        duration=duration,
+        step_durations=step_durations,
+    )
 
 
 async def collect_engine_result(

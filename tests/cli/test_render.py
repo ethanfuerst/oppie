@@ -78,7 +78,8 @@ def test_ask_flow_streams_text_and_captures_result():
     assert 'Synced (3 tickets' in out
     assert 'Hello, world.' in out
     assert '0.1k tokens' in out
-    assert '1 turns' in out
+    assert 'turns' not in out
+    assert 'ask ' in out
     assert renderer.ask_result is not None
     assert renderer.ask_result.answer == 'Hello, world.'
 
