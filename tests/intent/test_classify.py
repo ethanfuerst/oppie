@@ -2,7 +2,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from oppie.intent import Intent, classify_intent
+from oppie.intent import Intent, IntentClassificationError, classify_intent
 from oppie.llm.base import LLMResponse, TokenUsage
 
 
@@ -55,29 +55,35 @@ async def test_classifies_apply(mock_llm):
 
 
 @pytest.mark.asyncio
-async def test_defaults_to_question_on_bad_response(mock_llm):
+async def test_raises_on_bad_response(mock_llm):
     mock_llm.generate.return_value = LLMResponse(
         text='garbage',
         json=None,
         usage=TokenUsage(10, 5),
     )
 
-    result = await classify_intent('anything', mock_llm)
-
-    assert result == Intent.QUESTION
+    with pytest.raises(IntentClassificationError):
+        await classify_intent('anything', mock_llm)
 
 
 @pytest.mark.asyncio
-async def test_defaults_to_question_on_invalid_intent(mock_llm):
+async def test_raises_on_invalid_intent(mock_llm):
     mock_llm.generate.return_value = LLMResponse(
         text='',
         json={'intent': 'ambiguous'},
         usage=TokenUsage(10, 5),
     )
 
-    result = await classify_intent('something', mock_llm)
+    with pytest.raises(IntentClassificationError):
+        await classify_intent('something', mock_llm)
 
-    assert result == Intent.QUESTION
+
+@pytest.mark.asyncio
+async def test_raises_on_llm_exception(mock_llm):
+    mock_llm.generate.side_effect = RuntimeError('boom')
+
+    with pytest.raises(IntentClassificationError):
+        await classify_intent('anything', mock_llm)
 
 
 @pytest.mark.asyncio

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -66,6 +66,7 @@ class StatsEvent:
     usage: TokenUsage
     turns: int
     duration: float
+    step_durations: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass(slots=True)

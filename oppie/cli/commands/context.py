@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 import click
 
 from oppie.artifacts import ArtifactStore, ArtifactType
+from oppie.cli.console import error
 from oppie.run_log import generate_run_id
 
 CONTEXT_DOCS = ('vision', 'roadmap', 'metrics', 'prioritization')
@@ -24,7 +25,8 @@ def show(ctx: click.Context, doc: str | None) -> None:
     if doc:
         path = context_dir / f'{doc}.md'
         if not path.exists():
-            raise click.ClickException(f'Context document not found: {doc}.md')
+            error(f'Context document not found: {doc}.md')
+            raise SystemExit(1)
         click.echo(path.read_text())
         return
 
@@ -63,7 +65,11 @@ def edit(ctx: click.Context, doc: str) -> None:
         original = f'# {doc.title()}\n\n'
 
     # Open in editor via click.edit (handles EDITOR/VISUAL fallback)
-    edited = click.edit(original)
+    try:
+        edited = click.edit(original)
+    except click.UsageError:
+        error('No editor available. Set $EDITOR or $VISUAL and retry.')
+        raise SystemExit(1) from None
     if edited is None:
         click.echo('No changes made.')
         return

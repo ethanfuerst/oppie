@@ -61,7 +61,7 @@ class PromptOrCommand(click.Group):
     '--no-sync',
     is_flag=True,
     default=False,
-    help='Skip auto-sync, use cached data.',
+    help='Skip auto-sync; use cached ticket data from the last sync.',
 )
 @click.pass_context
 def cli(

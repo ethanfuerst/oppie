@@ -49,9 +49,16 @@ class EventRenderer:
     after `consume()` completes.
     """
 
-    def __init__(self, mode: RenderMode, console: Console | None = None) -> None:
+    def __init__(
+        self,
+        mode: RenderMode,
+        console: Console | None = None,
+        *,
+        sync_duration: float | None = None,
+    ) -> None:
         self.mode = mode
         self.console = console or default_console
+        self.sync_duration = sync_duration
         self.ask_result: AskResult | None = None
         self.plan: Plan | None = None
         self._thinking: Status | None = None
@@ -140,10 +147,13 @@ class EventRenderer:
         self._stop_thinking()
         self._end_text_block()
         total = event.usage.prompt_tokens + event.usage.completion_tokens
-        self.console.print(
-            f'[dim]* {total / 1000:.1f}k tokens \u00b7 '
-            f'{event.turns} turns \u00b7 {event.duration:.1f}s[/dim]'
-        )
+        parts = [f'{total / 1000:.1f}k tokens']
+        if self.sync_duration is not None:
+            parts.append(f'sync {self.sync_duration:.1f}s')
+        label = 'plan' if self.mode is RenderMode.PLAN else 'ask'
+        step_total = sum(event.step_durations.values()) or event.duration
+        parts.append(f'{label} {step_total:.1f}s')
+        self.console.print(f'[dim]* {" \u00b7 ".join(parts)}[/dim]')
 
     def on_ask_result(self, event: AskResultEvent) -> None:
         self.ask_result = event.result
@@ -184,6 +194,7 @@ def render_sync(
         result,
     ):
         if result.synced:
+            renderer.sync_duration = result.duration
             renderer._dispatch(
                 SyncDoneEvent(
                     ticket_count=result.ticket_count, duration=result.duration

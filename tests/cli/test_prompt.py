@@ -6,7 +6,7 @@ from click.testing import CliRunner
 from oppie.ask.engine import AskResult
 from oppie.cli import cli
 from oppie.events import AskResultEvent
-from oppie.intent import Intent
+from oppie.intent import Intent, IntentClassificationError
 from oppie.models.operation import Operation
 from oppie.session import Session
 from tests.cli.conftest import make_and_save_plan, setup_cli_instance
@@ -187,6 +187,24 @@ def test_prompt_apply_force_via_flag(tmp_path):
         )
 
     assert result.exit_code == 0
+
+
+def test_prompt_classifier_failure_prints_clarification(tmp_path):
+    """Classifier failure shows the spec clarification message and exits 0."""
+    home = setup_cli_instance(tmp_path)
+    runner = CliRunner()
+
+    with patch(
+        'oppie.cli.commands.prompt.classify_intent',
+        new_callable=AsyncMock,
+        side_effect=IntentClassificationError('boom'),
+    ):
+        result = runner.invoke(cli, ['--home', str(home), 'vague prompt'])
+
+    assert result.exit_code == 0
+    assert 'Could not determine intent' in result.output
+    assert '(question)' in result.output
+    assert '(instruction)' in result.output
 
 
 def test_bare_oppie_prints_help_and_tui_hint(tmp_path):

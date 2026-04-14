@@ -3,7 +3,7 @@ from pathlib import Path
 
 import click
 
-from oppie.cli.console import console, success, warn
+from oppie.cli.console import console, error, success, warn
 from oppie.cli.extras import extras_available
 from oppie.config import (
     InstanceType,
@@ -27,10 +27,11 @@ def init(ctx: click.Context) -> None:
     home = home_override or (Path.cwd() / '.oppie')
 
     if home.exists():
-        raise click.ClickException(
+        error(
             f'Instance already exists at {home}. '
             'Run "oppie config validate" to check it, or remove it to start fresh.'
         )
+        raise SystemExit(1)
 
     extras = extras_available()
 
@@ -78,9 +79,8 @@ def init(ctx: click.Context) -> None:
 
     # Step 3: LLM backend (required)
     if not extras['llm']:
-        raise click.ClickException(
-            'LLM backend requires httpx. Install with: pip install oppie[llm]'
-        )
+        error(r'LLM backend requires httpx. Install with: pip install oppie\[llm]')
+        raise SystemExit(1)
     llm_config = _prompt_llm_config()
 
     # Step 4: Context docs (optional)

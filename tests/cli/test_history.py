@@ -38,6 +38,10 @@ def test_history_shows_entries(tmp_path):
     assert 'run-0000' in result.output
     assert 'plan' in result.output
     assert '2026-01-01' in result.output
+    # Rich table headers are present
+    assert 'Run' in result.output
+    assert 'Command' in result.output
+    assert 'Duration' in result.output
 
 
 def test_history_limit(tmp_path):
