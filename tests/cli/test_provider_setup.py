@@ -148,7 +148,7 @@ def test_linear_missing_extra_exits(tmp_path, monkeypatch, capsys):
     config = load_oppie_config(home / 'config')
     monkeypatch.setattr(
         'oppie.cli.provider_setup.extras_available',
-        lambda: {'linear': False, 'llm': False, 'tui': False},
+        lambda: {'linear': False, 'openai': False, 'anthropic': False},
     )
 
     with pytest.raises(SystemExit) as excinfo, setup_provider(home, config):

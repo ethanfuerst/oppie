@@ -96,7 +96,7 @@ def test_init_linear_provider(tmp_path, monkeypatch):
     # Mock extras to report linear available
     monkeypatch.setattr(
         'oppie.cli.commands.init.extras_available',
-        lambda: {'linear': True, 'llm': True, 'tui': False},
+        lambda: {'linear': True, 'openai': True, 'anthropic': True},
     )
 
     mock_config = LinearProviderConfig(
@@ -127,18 +127,35 @@ def test_init_linear_provider(tmp_path, monkeypatch):
     mock_provider.close.assert_called_once()
 
 
-def test_init_fails_without_llm_extra(tmp_path, monkeypatch):
+def test_init_fails_without_openai_extra(tmp_path, monkeypatch):
     home = tmp_path / '.oppie'
     monkeypatch.setattr(
         'oppie.cli.commands.init.extras_available',
-        lambda: {'linear': False, 'llm': False, 'tui': False},
+        lambda: {'linear': False, 'openai': False, 'anthropic': True},
     )
     runner = CliRunner()
     result = runner.invoke(
         cli,
         ['--home', str(home), 'init'],
-        input='1\n1\n',
+        input='1\n1\n1\n',
     )
 
     assert result.exit_code != 0
-    assert "pip install 'oppie[llm]'" in result.output
+    assert "pip install 'oppie[openai]'" in result.output
+
+
+def test_init_fails_without_anthropic_extra(tmp_path, monkeypatch):
+    home = tmp_path / '.oppie'
+    monkeypatch.setattr(
+        'oppie.cli.commands.init.extras_available',
+        lambda: {'linear': False, 'openai': True, 'anthropic': False},
+    )
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        ['--home', str(home), 'init'],
+        input='1\n1\n2\n',
+    )
+
+    assert result.exit_code != 0
+    assert "pip install 'oppie[anthropic]'" in result.output

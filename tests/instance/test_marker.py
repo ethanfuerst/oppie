@@ -1,27 +1,28 @@
 import pytest
 
+import oppie
 from oppie.config import InstanceType
 from oppie.instance import Marker
 
 
 def test_marker_to_dict():
-    marker = Marker(version='0.0.1', instance_type=InstanceType.REPO)
+    marker = Marker(version=oppie.__version__, instance_type=InstanceType.REPO)
     d = marker.to_dict()
 
-    assert d == {'version': '0.0.1', 'instance_type': 'repo'}
+    assert d == {'version': oppie.__version__, 'instance_type': 'repo'}
 
 
 def test_marker_from_dict():
-    data = {'version': '0.0.1', 'instance_type': 'portfolio'}
+    data = {'version': oppie.__version__, 'instance_type': 'portfolio'}
     marker = Marker.from_dict(data)
 
-    assert marker.version == '0.0.1'
+    assert marker.version == oppie.__version__
     assert marker.instance_type == InstanceType.PORTFOLIO
 
 
 def test_marker_write_and_read(tmp_path):
     path = tmp_path / '.oppie-marker'
-    original = Marker(version='0.0.1', instance_type=InstanceType.REPO)
+    original = Marker(version=oppie.__version__, instance_type=InstanceType.REPO)
     original.write(path)
     loaded = Marker.read(path)
 

@@ -14,6 +14,17 @@ class CheckStatus:
     NA = 'n/a'
 
 
+_LLM_EXTRA_BY_BACKEND = {
+    'openai-compatible': 'openai',
+    'anthropic': 'anthropic',
+}
+
+
+def _llm_install_hint(backend_value: str) -> str:
+    extra = _LLM_EXTRA_BY_BACKEND.get(backend_value, 'openai')
+    return f"pip install 'oppie[{extra}]'"
+
+
 @dataclass(slots=True)
 class CheckResult:
     name: str
@@ -217,11 +228,14 @@ def check_missing_deps(config: object | None) -> CheckResult:
             "Linear provider configured but the 'linear' extra is not installed"
             " (pip install 'oppie[linear]')"
         )
-    if config and hasattr(config, 'llm') and config.llm and not extras['llm']:  # type: ignore[union-attr]
-        warnings.append(
-            "LLM configured but the 'llm' extra is not installed"
-            " (pip install 'oppie[llm]')"
-        )
+    if config and hasattr(config, 'llm') and config.llm:
+        backend_value = config.llm.backend.value  # type: ignore[union-attr]
+        needed_extra = _LLM_EXTRA_BY_BACKEND.get(backend_value, 'openai')
+        if not extras.get(needed_extra, False):
+            warnings.append(
+                f"LLM configured but the '{needed_extra}' extra is not installed"
+                f' ({_llm_install_hint(backend_value)})'
+            )
 
     if warnings:
         return CheckResult(

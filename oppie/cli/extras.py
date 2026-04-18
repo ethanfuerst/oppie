@@ -1,11 +1,10 @@
 def extras_available() -> dict[str, bool]:
     """Check which optional extras are installed."""
     httpx_ok = _try_import('httpx')
-    textual_ok = _try_import('textual')
     return {
         'linear': httpx_ok,
-        'llm': httpx_ok,
-        'tui': textual_ok,
+        'openai': httpx_ok,
+        'anthropic': httpx_ok,
     }
 
 

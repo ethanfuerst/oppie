@@ -11,20 +11,20 @@ oppie is distributed on PyPI. Core install:
 
 Optional features ship as extras:
 
-| Extra            | Enables                                       |
-|------------------|-----------------------------------------------|
-| `oppie[llm]`     | LLM backends (OpenAI-compatible and Anthropic) |
-| `oppie[linear]`  | Linear ticket provider                         |
-| `oppie[tui]`     | Textual TUI (coming soon)                      |
-| `oppie[all]`     | All of the above                               |
+| Extra              | Enables                                                                                  |
+|--------------------|------------------------------------------------------------------------------------------|
+| `oppie[linear]`    | Linear ticket provider                                                                   |
+| `oppie[openai]`    | OpenAI-compatible LLM backend (works with Ollama, llama.cpp, LM Studio for local models) |
+| `oppie[anthropic]` | Anthropic Claude backend                                                                 |
+| `oppie[all]`       | All of the above                                                                         |
 
 An LLM backend is required for normal use. Most users want:
 
-    pip install 'oppie[llm]'
+    pip install 'oppie[openai,linear]'
 
-Add `linear` if you sync tickets from Linear:
+For Anthropic Claude instead of local models:
 
-    pip install 'oppie[llm,linear]'
+    pip install 'oppie[anthropic,linear]'
 
 ## Quickstart
 

@@ -473,14 +473,14 @@ def test_check_llm_connectivity_failed(monkeypatch):
 def test_check_extras(monkeypatch):
     monkeypatch.setattr(
         'oppie.cli.extras.extras_available',
-        lambda: {'linear': True, 'llm': True, 'tui': False},
+        lambda: {'linear': True, 'openai': True, 'anthropic': False},
     )
 
     result = check_extras()
 
     assert result.status == CheckStatus.OK
     assert 'linear' in result.message
-    assert 'tui' in result.message
+    assert 'anthropic' in result.message
 
 
 # --- check_missing_deps ---
@@ -489,7 +489,7 @@ def test_check_extras(monkeypatch):
 def test_check_missing_deps_ok(monkeypatch):
     monkeypatch.setattr(
         'oppie.cli.extras.extras_available',
-        lambda: {'linear': True, 'llm': True, 'tui': True},
+        lambda: {'linear': True, 'openai': True, 'anthropic': True},
     )
 
     result = check_missing_deps(None)
@@ -502,7 +502,7 @@ def test_check_missing_deps_warning(tmp_path, monkeypatch):
 
     monkeypatch.setattr(
         'oppie.cli.extras.extras_available',
-        lambda: {'linear': True, 'llm': False, 'tui': True},
+        lambda: {'linear': True, 'openai': False, 'anthropic': True},
     )
 
     from oppie.config import load_config
@@ -513,6 +513,67 @@ def test_check_missing_deps_warning(tmp_path, monkeypatch):
 
     assert result.status == CheckStatus.WARNING
     assert 'LLM' in result.message
+    assert 'oppie[openai]' in result.message
+
+
+def test_check_missing_deps_warns_anthropic_extra(tmp_path, monkeypatch):
+    config_dir = tmp_path / 'config'
+    config_dir.mkdir(parents=True, exist_ok=True)
+    (config_dir / 'oppie.yaml').write_text(
+        yaml.dump(
+            {
+                'instance_type': 'repo',
+                'provider': {'type': 'local'},
+                'llm': {'backend': 'anthropic', 'model': 'claude-x'},
+            }
+        )
+    )
+
+    monkeypatch.setattr(
+        'oppie.cli.extras.extras_available',
+        lambda: {'linear': True, 'openai': True, 'anthropic': False},
+    )
+
+    from oppie.config import load_config
+
+    config = load_config(tmp_path / 'config')
+
+    result = check_missing_deps(config)
+
+    assert result.status == CheckStatus.WARNING
+    assert 'oppie[anthropic]' in result.message
+
+
+def test_check_missing_deps_warns_linear_extra(tmp_path, monkeypatch):
+    config_dir = tmp_path / 'config'
+    config_dir.mkdir(parents=True, exist_ok=True)
+    (config_dir / 'oppie.yaml').write_text(
+        yaml.dump(
+            {
+                'instance_type': 'repo',
+                'provider': {
+                    'type': 'linear',
+                    'team_id': 'team-1',
+                    'project_id': 'proj-1',
+                },
+                'llm': {'backend': 'openai-compatible', 'model': 'test'},
+            }
+        )
+    )
+
+    monkeypatch.setattr(
+        'oppie.cli.extras.extras_available',
+        lambda: {'linear': False, 'openai': True, 'anthropic': True},
+    )
+
+    from oppie.config import load_config
+
+    config = load_config(tmp_path / 'config')
+
+    result = check_missing_deps(config)
+
+    assert result.status == CheckStatus.WARNING
+    assert 'oppie[linear]' in result.message
 
 
 # --- scan_run_log ---

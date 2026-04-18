@@ -32,3 +32,7 @@ venv/
 .pytest_cache/
 htmlcov/
 .coverage
+
+# Secrets
+.env
+.env.*
