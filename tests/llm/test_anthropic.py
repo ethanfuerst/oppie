@@ -95,6 +95,43 @@ async def test_generate_with_structured_output(provider):
 
 
 @pytest.mark.asyncio
+async def test_generate_maps_tool_schema_to_input_schema(provider):
+    captured_body = {}
+
+    def capture_request(request):
+        import json as _json
+
+        captured_body.update(_json.loads(request.content))
+        return httpx.Response(
+            200,
+            json={
+                'content': [{'type': 'text', 'text': 'ok'}],
+                'usage': {'input_tokens': 1, 'output_tokens': 1},
+            },
+        )
+
+    tool_schema = {'type': 'object', 'properties': {'q': {'type': 'string'}}}
+    with respx.mock:
+        respx.post('https://api.anthropic.com/v1/messages').mock(
+            side_effect=capture_request
+        )
+        await provider.generate(
+            messages=[{'role': 'user', 'content': 'hi'}],
+            tools=[
+                {
+                    'name': 'search',
+                    'description': 'Search tickets.',
+                    'schema': tool_schema,
+                }
+            ],
+        )
+
+    assert captured_body['tools'][0]['name'] == 'search'
+    assert captured_body['tools'][0]['description'] == 'Search tickets.'
+    assert captured_body['tools'][0]['input_schema'] == tool_schema
+
+
+@pytest.mark.asyncio
 async def test_generate_with_system_message(provider):
     with respx.mock:
         respx.post('https://api.anthropic.com/v1/messages').mock(

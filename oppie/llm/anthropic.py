@@ -106,7 +106,7 @@ class AnthropicProvider(LLMProvider):
                 {
                     'name': t['name'],
                     'description': t.get('description', ''),
-                    'input_schema': t['parameters'],
+                    'input_schema': t['schema'],
                 }
                 for t in tools
             ]

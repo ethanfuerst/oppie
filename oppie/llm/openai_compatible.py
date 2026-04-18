@@ -86,7 +86,7 @@ class OpenAICompatibleProvider(LLMProvider):
                     'function': {
                         'name': t['name'],
                         'description': t.get('description', ''),
-                        'parameters': t['parameters'],
+                        'parameters': t['schema'],
                     },
                 }
                 for t in tools
