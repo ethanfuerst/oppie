@@ -65,6 +65,44 @@ async def test_generate_with_response_schema(provider):
 
 
 @pytest.mark.asyncio
+async def test_generate_maps_tool_schema_to_parameters(provider):
+    captured_body = {}
+
+    def capture_request(request):
+        import json as _json
+
+        captured_body.update(_json.loads(request.content))
+        return httpx.Response(
+            200,
+            json={
+                'choices': [{'message': {'content': 'ok'}}],
+                'usage': {'prompt_tokens': 1, 'completion_tokens': 1},
+            },
+        )
+
+    tool_schema = {'type': 'object', 'properties': {'q': {'type': 'string'}}}
+    with respx.mock:
+        respx.post('http://test-server/v1/chat/completions').mock(
+            side_effect=capture_request
+        )
+        await provider.generate(
+            messages=[{'role': 'user', 'content': 'hi'}],
+            tools=[
+                {
+                    'name': 'search',
+                    'description': 'Search tickets.',
+                    'schema': tool_schema,
+                }
+            ],
+        )
+
+    assert captured_body['tools'][0]['type'] == 'function'
+    assert captured_body['tools'][0]['function']['name'] == 'search'
+    assert captured_body['tools'][0]['function']['description'] == 'Search tickets.'
+    assert captured_body['tools'][0]['function']['parameters'] == tool_schema
+
+
+@pytest.mark.asyncio
 async def test_test_connection_success(provider):
     with respx.mock:
         respx.get('http://test-server/v1/models').mock(

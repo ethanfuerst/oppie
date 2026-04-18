@@ -39,7 +39,13 @@ class Tool:
     modes: set[str]
 
     def to_llm_schema(self) -> dict[str, Any]:
-        """Return the tool definition for LLM APIs."""
+        """Return the tool definition for LLM APIs.
+
+        Emits a provider-agnostic dict with keys ``name``, ``description``,
+        and ``schema`` (a JSON-Schema object). Adapters translate ``schema``
+        to their wire key (``parameters`` for OpenAI, ``input_schema`` for
+        Anthropic).
+        """
         return {
             'name': self.name,
             'description': self.description,
