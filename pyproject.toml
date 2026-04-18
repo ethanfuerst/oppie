@@ -4,6 +4,19 @@ version = "0.0.1"
 description = "Project management operations CLI with a plan/apply workflow"
 readme = "README.md"
 requires-python = ">=3.12"
+license = "MIT"
+authors = [{ name = "Ethan Fuerst", email = "ethanfuerst@gmail.com" }]
+keywords = ["cli", "project-management", "linear", "llm", "plan-apply"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development",
+]
 dependencies = [
     "click>=8.3.1",
     "pydantic-settings>=2.13.1",
@@ -12,10 +25,14 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-llm = ["httpx>=0.28.1"]
 linear = ["httpx>=0.28.1"]
-tui = ["textual>=8.1.1"]
-all = ["oppie[llm]", "oppie[linear]", "oppie[tui]"]
+openai = ["httpx>=0.28.1"]
+anthropic = ["httpx>=0.28.1"]
+all = ["oppie[linear]", "oppie[openai]", "oppie[anthropic]"]
+
+[project.urls]
+Homepage = "https://github.com/ethanfuerst/oppie"
+Issues = "https://github.com/ethanfuerst/oppie/issues"
 
 [dependency-groups]
 dev = [
@@ -64,6 +81,7 @@ name = "cz_conventional_commits"
 version = "0.0.1"
 version_files = [
     "pyproject.toml:^version",
+    "oppie/__init__.py:^__version__",
 ]
 tag_format = "v$version"
 update_changelog_on_bump = false

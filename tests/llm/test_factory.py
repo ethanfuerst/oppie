@@ -36,7 +36,7 @@ def test_create_openai_raises_when_httpx_missing():
     config = LLMConfig(backend=LLMBackend.OPENAI_COMPATIBLE, model='gpt-4')
     with (
         patch('oppie.llm.openai_compatible.httpx', None),
-        pytest.raises(LLMNotConfiguredError, match='oppie\\[llm\\]'),
+        pytest.raises(LLMNotConfiguredError, match=r'oppie\[openai\]'),
     ):
         create_llm_provider(config)
 
@@ -45,6 +45,6 @@ def test_create_anthropic_raises_when_httpx_missing():
     config = LLMConfig(backend=LLMBackend.ANTHROPIC, model='claude-3')
     with (
         patch('oppie.llm.anthropic.httpx', None),
-        pytest.raises(LLMNotConfiguredError, match='oppie\\[llm\\]'),
+        pytest.raises(LLMNotConfiguredError, match=r'oppie\[anthropic\]'),
     ):
         create_llm_provider(config)

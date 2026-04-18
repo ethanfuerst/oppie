@@ -6,7 +6,6 @@
 |----------|--------|-------|
 | CLI framework | Click | User preference from prior project experience |
 | CLI output | Rich | Styled output (spinners, checkmarks, tables) |
-| TUI library | Textual | Full TUI framework with widgets, layout, async |
 | Async framework | asyncio | Stdlib, works with Textual natively |
 | HTTP client | httpx | Async + sync hybrid, streaming support, HTTP/2 |
 | LLM client | httpx + custom adapter | Minimal LLMProvider interface using httpx |
@@ -19,17 +18,24 @@
 
 ## Optional dependencies (extras)
 
-- `httpx` and `textual` are **not** core deps — they live in `[project.optional-dependencies]`.
-- Extras: `llm` (httpx), `linear` (httpx), `tui` (textual), `all` (all three).
+- `httpx` is **not** a core dep — it lives in `[project.optional-dependencies]`.
+- Extras: `linear` (httpx), `openai` (httpx), `anthropic` (httpx), `all` (aggregates all three). No `tui` extra yet — bare `oppie` still prints a forward-looking `pip install oppie[tui]` hint that will be wired up in ETH-369 (0.2.0).
 - Missing-extra error template (CLI messages and `ImportError` strings alike): `<Feature> requires the '<name>' extra.` + `Install with: pip install 'oppie[<name>]'`. In `console.print` calls the brackets must be Rich-escaped (`\[name]`); in plain `ImportError` strings they must not.
+- Per-backend hint routing: `openai_compatible.py` hints `oppie[openai]`; `anthropic.py` hints `oppie[anthropic]`; `LinearProvider` hints `oppie[linear]`. `oppie/health/checks.py` has `_LLM_EXTRA_BY_BACKEND` + `_llm_install_hint()` that dispatches on `config.llm.backend.value`. `oppie/cli/commands/init.py` checks the extra for the backend the user picks (inside `_prompt_llm_config`) and errors with a backend-specific hint.
 - LLM provider modules (`openai_compatible.py`, `anthropic.py`, `_sse.py`) and `LinearProvider` use lazy imports: `try: import httpx / except ImportError: httpx = None` with `from __future__ import annotations` for deferred type evaluation. Provider constructors raise `ImportError` with install hint if httpx is missing. The factory (`create_llm_provider()`) wraps this into `LLMNotConfiguredError`.
-- CI jobs that need httpx/textual use `uv sync --frozen --all-extras`. The `core-import-check` CI job validates that `import oppie` works without extras.
+- CI jobs that need httpx use `uv sync --frozen --all-extras`. The `core-import-check` CI job validates that `import oppie` works without extras.
 
 ## Commit style
 
 Conventional commits enforced in CI. Format: `type: description`
 
 Allowed types: `feat`, `fix`, `ci`, `chore`, `docs`, `refactor`, `test`
+
+## Release & versioning
+
+- `.github/workflows/release.yml` has two jobs: `release` (commitizen `cz bump` + tag + GitHub release) and `publish-pypi` (OIDC trusted publishing, `environment: pypi`). Triggers: push to `main` (auto-bump from commit history) and `workflow_dispatch` with explicit `bump: patch|minor|major|auto`.
+- Version is sourced from `pyproject.toml`. `[tool.commitizen].version_files` keeps `oppie/__init__.py:^__version__` in lockstep. Tests that care about the version reference `oppie.__version__`, not literal strings (see `tests/instance/test_marker.py`).
+- `main` has no branch protection (the release job pushes the bump commit using the default `GITHUB_TOKEN`). Runbook for one-time GitHub/PyPI setup lives in `next_steps.md`.
 
 ## Testing rules
 

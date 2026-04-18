@@ -36,8 +36,8 @@ class OpenAICompatibleProvider(LLMProvider):
     ) -> None:
         if httpx is None:
             raise ImportError(
-                "LLM backend requires the 'llm' extra. "
-                "Install with: pip install 'oppie[llm]'"
+                "OpenAI-compatible LLM backend requires the 'openai' extra.\n"
+                "Install with: pip install 'oppie[openai]'"
             )
         self._model = model
         self._endpoint = endpoint.rstrip('/')

@@ -78,11 +78,7 @@ def init(ctx: click.Context) -> None:
         provider_config = ProviderConfig(type='local')  # type: ignore[arg-type]
 
     # Step 3: LLM backend (required)
-    if not extras['llm']:
-        error("LLM backend requires the 'llm' extra.")
-        console.print(r"Install with: [bold]pip install 'oppie\[llm]'[/bold]")
-        raise SystemExit(1)
-    llm_config = _prompt_llm_config()
+    llm_config = _prompt_llm_config(extras)
 
     # Step 4: Context docs (optional)
     if click.confirm(
@@ -113,12 +109,18 @@ def init(ctx: click.Context) -> None:
     )
 
 
-def _prompt_llm_config() -> LLMConfig:
+def _prompt_llm_config(extras: dict[str, bool]) -> LLMConfig:
     """Prompt for LLM backend configuration."""
     console.print('\n[bold]LLM backend:[/bold]')
     console.print('  1. Local (OpenAI-compatible endpoint)')
     console.print('  2. Anthropic Claude API')
     llm_choice = click.prompt('Choice', type=click.IntRange(1, 2), default=1)
+
+    extra_name = 'openai' if llm_choice == 1 else 'anthropic'
+    if not extras.get(extra_name, False):
+        error(f"LLM backend requires the '{extra_name}' extra.")
+        console.print(rf"Install with: [bold]pip install 'oppie\[{extra_name}]'[/bold]")
+        raise SystemExit(1)
 
     if llm_choice == 1:
         backend = LLMBackend.OPENAI_COMPATIBLE
