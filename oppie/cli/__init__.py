@@ -2,6 +2,7 @@ from pathlib import Path
 
 import click
 
+from oppie import __version__
 from oppie.cli.console import console, error
 from oppie.logging import configure_logging
 
@@ -45,6 +46,7 @@ class PromptOrCommand(click.Group):
 
 
 @click.group(cls=PromptOrCommand, invoke_without_command=True)
+@click.version_option(__version__, '-V', '--version', prog_name='oppie')
 @click.option(
     '--home',
     type=click.Path(path_type=Path),
