@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import logging
-from contextlib import contextmanager
+import time
+from contextlib import contextmanager, suppress
 from enum import Enum
 from typing import TYPE_CHECKING
 
@@ -36,17 +38,133 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_IDLE_WARNING_SECONDS = 30
+_TOOL_INPUT_SUMMARY_MAX = 40
+
 
 class RenderMode(Enum):
     ASK = 'ask'
     PLAN = 'plan'
 
 
+def _summarize_tool_input(tool_input: dict) -> str:
+    """Render a dict as 'k1="v1", k2=...' capped at 40 chars, no newlines."""
+    if not tool_input:
+        return ''
+    parts: list[str] = []
+    for key, value in tool_input.items():
+        rendered = f'{key}="{value}"' if isinstance(value, str) else f'{key}={value!r}'
+        parts.append(rendered.replace('\n', ' ').replace('\r', ' '))
+    joined = ', '.join(parts)
+    if len(joined) > _TOOL_INPUT_SUMMARY_MAX:
+        joined = joined[: _TOOL_INPUT_SUMMARY_MAX - 1] + '…'
+    return joined
+
+
+class _SpinnerController:
+    """Owns the live Thinking/Calling-tool spinner and elapsed-time task.
+
+    State transitions:
+      set_step(name)        — remember step name; does not touch Status.
+      show_thinking()       — reset phase timer, enter Thinking mode,
+                              start Status + tick task if needed.
+      show_tool_call(n, i)  — reset phase timer, enter tool mode,
+                              start Status + tick task if needed.
+      stop()                — cancel tick task, stop Status. Synchronous.
+      aclose()              — awaits the cancelled tick task. Call from
+                              consume()'s finally block.
+    """
+
+    def __init__(self, console: Console) -> None:
+        self._console = console
+        self._status: Status | None = None
+        self._tick_task: asyncio.Task | None = None
+        self._phase_start: float = 0.0
+        self._step_name: str | None = None
+        self._tool_name: str | None = None
+        self._tool_input_summary: str = ''
+
+    @property
+    def is_active(self) -> bool:
+        return self._status is not None
+
+    def set_step(self, step_name: str) -> None:
+        self._step_name = step_name
+
+    def show_thinking(self) -> None:
+        self._tool_name = None
+        self._tool_input_summary = ''
+        self._phase_start = time.monotonic()
+        self._ensure_status_and_task()
+
+    def show_tool_call(self, tool_name: str, tool_input: dict) -> None:
+        self._tool_name = tool_name
+        self._tool_input_summary = _summarize_tool_input(tool_input)
+        self._phase_start = time.monotonic()
+        self._ensure_status_and_task()
+
+    def stop(self) -> None:
+        if self._tick_task is not None:
+            self._tick_task.cancel()
+            self._tick_task = None
+        if self._status is not None:
+            self._status.stop()
+            self._status = None
+        self._tool_name = None
+        self._tool_input_summary = ''
+
+    async def aclose(self) -> None:
+        task = self._tick_task
+        self.stop()
+        if task is not None:
+            with suppress(asyncio.CancelledError):
+                await task
+
+    def _label(self) -> str:
+        elapsed = int(time.monotonic() - self._phase_start)
+        if self._tool_name is not None:
+            base = f'Calling tool: {self._tool_name}'
+            if self._tool_input_summary:
+                base += f' ({self._tool_input_summary})'
+            return f'{base} ... {elapsed}s'
+        if self._step_name is not None:
+            label = f'Thinking... (step: {self._step_name}, {elapsed}s)'
+        else:
+            label = f'Thinking... ({elapsed}s)'
+        if elapsed >= _IDLE_WARNING_SECONDS:
+            label += ' (no response — check LLM backend?)'
+        return label
+
+    def _ensure_status_and_task(self) -> None:
+        label = self._label()
+        if self._status is None:
+            self._status = self._console.status(label, spinner='dots')
+            self._status.start()
+        else:
+            self._status.update(label)
+        if self._tick_task is None or self._tick_task.done():
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                self._tick_task = None
+            else:
+                self._tick_task = loop.create_task(self._tick())
+
+    async def _tick(self) -> None:
+        while True:
+            await asyncio.sleep(1)
+            if self._status is not None:
+                self._status.update(self._label())
+
+
 class EventRenderer:
     """Consume an EngineEvent stream and render it to a Rich console.
 
     Holds final domain results on `ask_result` / `plan` for callers to read
-    after `consume()` completes.
+    after `consume()` completes. Spinner state (Thinking vs. Calling tool,
+    step name, elapsed timer, idle warning) is delegated to a private
+    `_SpinnerController` that owns the live Rich `Status` and the asyncio
+    tick task that refreshes the label once per second.
     """
 
     def __init__(
@@ -61,16 +179,22 @@ class EventRenderer:
         self.sync_duration = sync_duration
         self.ask_result: AskResult | None = None
         self.plan: Plan | None = None
-        self._thinking: Status | None = None
+        self._spinner = _SpinnerController(self.console)
         self._sync_status: Status | None = None
         self._in_text = False
         self._operations_started = False
 
+    @property
+    def is_spinner_active(self) -> bool:
+        return self._spinner.is_active
+
     async def consume(self, events: AsyncIterator[EngineEvent]) -> None:
-        async for event in events:
-            self._dispatch(event)
-        self._stop_thinking()
-        self._end_text_block()
+        try:
+            async for event in events:
+                self._dispatch(event)
+        finally:
+            await self._spinner.aclose()
+            self._end_text_block()
 
     def _dispatch(self, event: EngineEvent) -> None:
         if isinstance(event, SyncStartEvent):
@@ -111,27 +235,27 @@ class EventRenderer:
 
     def on_step_start(self, event: StepStartEvent) -> None:
         self._end_text_block()
+        self._spinner.set_step(event.step_name)
         logger.debug('Render: step %s', event.step_name)
 
     def on_thinking(self, event: ThinkingEvent) -> None:
-        if self._thinking is None:
-            self._thinking = self.console.status('Thinking...', spinner='dots')
-            self._thinking.start()
+        self._spinner.show_thinking()
 
     def on_text_delta(self, event: TextDeltaEvent) -> None:
-        self._stop_thinking()
+        self._spinner.stop()
         if not self._in_text:
             self.console.print()
             self._in_text = True
         self.console.print(event.text, end='', soft_wrap=True, highlight=False)
 
     def on_tool_call(self, event: ToolCallEvent) -> None:
-        self._stop_thinking()
+        self._spinner.stop()
         self._end_text_block()
         self.console.print(f'[dim]\\[{event.tool_name}][/dim]')
+        self._spinner.show_tool_call(event.tool_name, event.input)
 
     def on_plan_operation(self, event: PlanOperationEvent) -> None:
-        self._stop_thinking()
+        self._spinner.stop()
         self._end_text_block()
         if not self._operations_started:
             self.console.print()
@@ -144,7 +268,7 @@ class EventRenderer:
         self.console.print(f'    [dim]{op.rationale}[/dim]')
 
     def on_stats(self, event: StatsEvent) -> None:
-        self._stop_thinking()
+        self._spinner.stop()
         self._end_text_block()
         total = event.usage.prompt_tokens + event.usage.completion_tokens
         parts = [f'{total / 1000:.1f}k tokens']
@@ -160,11 +284,6 @@ class EventRenderer:
 
     def on_plan_result(self, event: PlanResultEvent) -> None:
         self.plan = event.plan
-
-    def _stop_thinking(self) -> None:
-        if self._thinking is not None:
-            self._thinking.stop()
-            self._thinking = None
 
     def _end_text_block(self) -> None:
         if self._in_text:

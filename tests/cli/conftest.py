@@ -1,10 +1,46 @@
 import json
+from dataclasses import dataclass, field
 
 import pytest
 from click.testing import CliRunner
 
 from oppie.models.plan import Plan, PlanStatus
 from tests.helpers import setup_instance
+
+
+@dataclass
+class FakeStatus:
+    """Test stand-in for `rich.status.Status` — records label updates."""
+
+    label: str
+    spinner: str = 'dots'
+    updates: list[str] = field(default_factory=list)
+    started: bool = False
+    stopped: bool = False
+
+    def start(self) -> None:
+        self.started = True
+
+    def stop(self) -> None:
+        self.stopped = True
+
+    def update(self, status: str | None = None, **_: object) -> None:
+        if status is not None:
+            self.updates.append(status)
+            self.label = status
+
+
+def install_fake_status(monkeypatch, console):
+    """Patch `console.status` to return FakeStatus instances; return the list."""
+    created: list[FakeStatus] = []
+
+    def _status(label, spinner='dots', **_):
+        fake = FakeStatus(label=label, spinner=spinner)
+        created.append(fake)
+        return fake
+
+    monkeypatch.setattr(console, 'status', _status)
+    return created
 
 
 def setup_cli_instance(tmp_path):
