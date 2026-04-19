@@ -3,6 +3,7 @@ import pytest
 import respx
 
 from oppie.llm.anthropic import AnthropicProvider
+from oppie.llm.base import LLMHTTPError
 
 
 @pytest.fixture
@@ -67,3 +68,21 @@ async def test_stream_with_system_message(provider):
         chunks = [chunk async for chunk in result]
 
     assert chunks == ['ok']
+
+
+@pytest.mark.asyncio
+async def test_stream_raises_llm_http_error_with_body(provider):
+    with respx.mock:
+        respx.post('https://api.anthropic.com/v1/messages').mock(
+            return_value=httpx.Response(
+                429,
+                json={'error': {'type': 'rate_limit', 'message': 'too fast'}},
+            )
+        )
+        result = await provider.stream(messages=[{'role': 'user', 'content': 'hi'}])
+        with pytest.raises(LLMHTTPError) as excinfo:
+            async for _ in result:
+                pass
+
+    assert excinfo.value.status_code == 429
+    assert 'too fast' in str(excinfo.value)

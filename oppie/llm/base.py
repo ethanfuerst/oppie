@@ -1,6 +1,13 @@
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
-from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
+    import httpx
 
 
 @dataclass(slots=True)
@@ -15,13 +22,13 @@ class TokenUsage:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, int]) -> 'TokenUsage':
+    def from_dict(cls, data: dict[str, int]) -> TokenUsage:
         return cls(
             prompt_tokens=data['prompt_tokens'],
             completion_tokens=data['completion_tokens'],
         )
 
-    def __add__(self, other: 'TokenUsage') -> 'TokenUsage':
+    def __add__(self, other: TokenUsage) -> TokenUsage:
         return TokenUsage(
             prompt_tokens=self.prompt_tokens + other.prompt_tokens,
             completion_tokens=self.completion_tokens + other.completion_tokens,
@@ -62,7 +69,7 @@ class LLMResponse:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> 'LLMResponse':
+    def from_dict(cls, data: dict) -> LLMResponse:
         return cls(
             text=data['text'],
             json=data.get('json'),
@@ -77,7 +84,7 @@ class StreamResult:
         self._iterator = iterator
         self.usage: TokenUsage | None = None
 
-    def __aiter__(self) -> 'StreamResult':
+    def __aiter__(self) -> StreamResult:
         return self
 
     async def __anext__(self) -> str:
@@ -86,6 +93,52 @@ class StreamResult:
 
 class LLMNotConfiguredError(Exception):
     """Raised when attempting to construct an LLM provider with no LLM config."""
+
+
+class LLMHTTPError(Exception):
+    """HTTP error from an LLM backend, carrying the response body detail."""
+
+    def __init__(self, message: str, *, status_code: int, body: str) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.body = body
+
+
+def _extract_error_detail(resp: httpx.Response) -> str:
+    """Pull a human-readable error string out of an LLM response body.
+
+    Handles OpenAI shape (`{"error": {"message": "..."}}`), Ollama shape
+    (`{"error": "..."}`), and falls back to raw text for non-JSON bodies.
+    """
+    try:
+        body = resp.json()
+    except Exception:
+        return resp.text
+    if not isinstance(body, dict):
+        return resp.text
+    error = body.get('error')
+    if isinstance(error, dict):
+        return error.get('message') or resp.text
+    if isinstance(error, str):
+        return error
+    return resp.text
+
+
+async def _raise_for_llm_status(resp: httpx.Response) -> None:
+    """Raise LLMHTTPError carrying the response body on 4xx/5xx.
+
+    Works for both buffered and streaming responses.
+    """
+    if resp.status_code < 400:
+        return
+    if not resp.is_closed:
+        await resp.aread()
+    detail = _extract_error_detail(resp)
+    raise LLMHTTPError(
+        f'{resp.status_code} {resp.reason_phrase} from {resp.url}: {detail}',
+        status_code=resp.status_code,
+        body=detail,
+    ) from None
 
 
 class LLMProvider(ABC):
@@ -130,7 +183,7 @@ class LLMProvider(ABC):
     async def close(self) -> None:  # noqa: B027
         """Close the underlying HTTP client. Override in subclasses."""
 
-    async def __aenter__(self) -> 'LLMProvider':
+    async def __aenter__(self) -> LLMProvider:
         return self
 
     async def __aexit__(self, *exc: object) -> None:

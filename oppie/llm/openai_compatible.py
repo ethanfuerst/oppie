@@ -20,9 +20,59 @@ from oppie.llm.base import (
     StreamResult,
     TokenUsage,
     ToolCallRequest,
+    _raise_for_llm_status,
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _map_to_openai_format(messages: list[dict]) -> list[dict]:
+    """Map the engine's neutral message format to OpenAI chat-completions wire format.
+
+    - {role: 'assistant', content, tool_calls: [{id, name, input}]}
+        -> {role: 'assistant', content, tool_calls: [{id, type: 'function',
+            function: {name, arguments: <JSON string>}}]}
+    - {role: 'tool_results', results: [{tool_call_id, content, is_error}, ...]}
+        -> one {role: 'tool', tool_call_id, content} message per result
+          (is_error=True prefixes content with 'Error: ').
+    - other messages pass through unchanged.
+    """
+    mapped: list[dict] = []
+    for msg in messages:
+        role = msg.get('role')
+        if role == 'tool_results':
+            for r in msg['results']:
+                content = r['content']
+                if r.get('is_error'):
+                    content = f'Error: {content}'
+                mapped.append(
+                    {
+                        'role': 'tool',
+                        'tool_call_id': r['tool_call_id'],
+                        'content': content,
+                    }
+                )
+        elif role == 'assistant' and 'tool_calls' in msg:
+            mapped.append(
+                {
+                    'role': 'assistant',
+                    'content': msg.get('content') or None,
+                    'tool_calls': [
+                        {
+                            'id': tc['id'],
+                            'type': 'function',
+                            'function': {
+                                'name': tc['name'],
+                                'arguments': json.dumps(tc['input']),
+                            },
+                        }
+                        for tc in msg['tool_calls']
+                    ],
+                }
+            )
+        else:
+            mapped.append(msg)
+    return mapped
 
 
 class OpenAICompatibleProvider(LLMProvider):
@@ -70,7 +120,7 @@ class OpenAICompatibleProvider(LLMProvider):
         )
         body: dict = {
             'model': self._model,
-            'messages': messages,
+            'messages': _map_to_openai_format(messages),
             'max_tokens': max_tokens,
             'temperature': temperature,
         }
@@ -100,7 +150,7 @@ class OpenAICompatibleProvider(LLMProvider):
                         'function': {'name': tool_choice['name']},
                     }
         resp = await self._client.post('/chat/completions', json=body)
-        resp.raise_for_status()
+        await _raise_for_llm_status(resp)
         data = resp.json()
         message = data['choices'][0]['message']
         text = message.get('content') or ''
@@ -144,7 +194,7 @@ class OpenAICompatibleProvider(LLMProvider):
     ) -> StreamResult:
         body = {
             'model': self._model,
-            'messages': messages,
+            'messages': _map_to_openai_format(messages),
             'max_tokens': max_tokens,
             'temperature': temperature,
             'stream': True,
@@ -161,7 +211,7 @@ class OpenAICompatibleProvider(LLMProvider):
         logger.debug('OpenAI stream started: model=%s', self._model)
         usage: TokenUsage | None = None
         async with self._client.stream('POST', '/chat/completions', json=body) as resp:
-            resp.raise_for_status()
+            await _raise_for_llm_status(resp)
             async for event in parse_sse_events(resp):
                 choices = event.get('choices', [])
                 if choices:
