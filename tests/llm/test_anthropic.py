@@ -3,6 +3,7 @@ import pytest
 import respx
 
 from oppie.llm.anthropic import AnthropicProvider, _map_to_anthropic_format
+from oppie.llm.base import LLMHTTPError
 
 
 def test_map_to_anthropic_format_extracts_system():
@@ -35,6 +36,94 @@ def test_map_to_anthropic_format_multiple_system():
 
     assert system == 'First.\n\nSecond.'
     assert len(mapped) == 1
+
+
+def test_map_to_anthropic_format_assistant_tool_calls_become_block_list():
+    messages = [
+        {
+            'role': 'assistant',
+            'content': '',
+            'tool_calls': [
+                {'id': 'tc_1', 'name': 'search', 'input': {'q': 'open'}},
+            ],
+        }
+    ]
+    _, mapped = _map_to_anthropic_format(messages)
+
+    assert len(mapped) == 1
+    assert mapped[0]['role'] == 'assistant'
+    blocks = mapped[0]['content']
+
+    assert len(blocks) == 1
+    assert blocks[0] == {
+        'type': 'tool_use',
+        'id': 'tc_1',
+        'name': 'search',
+        'input': {'q': 'open'},
+    }
+
+
+def test_map_to_anthropic_format_assistant_tool_calls_preserve_text_block():
+    messages = [
+        {
+            'role': 'assistant',
+            'content': 'thinking out loud',
+            'tool_calls': [
+                {'id': 'tc_1', 'name': 'search', 'input': {}},
+            ],
+        }
+    ]
+    _, mapped = _map_to_anthropic_format(messages)
+    blocks = mapped[0]['content']
+
+    assert len(blocks) == 2
+    assert blocks[0] == {'type': 'text', 'text': 'thinking out loud'}
+    assert blocks[1]['type'] == 'tool_use'
+
+
+def test_map_to_anthropic_format_tool_results_become_user_block():
+    messages = [
+        {
+            'role': 'tool_results',
+            'results': [
+                {'tool_call_id': 'tc_1', 'content': '[]', 'is_error': False},
+                {'tool_call_id': 'tc_2', 'content': 'boom', 'is_error': True},
+            ],
+        }
+    ]
+    _, mapped = _map_to_anthropic_format(messages)
+
+    assert len(mapped) == 1
+    assert mapped[0]['role'] == 'user'
+    blocks = mapped[0]['content']
+
+    assert len(blocks) == 2
+    assert blocks[0] == {
+        'type': 'tool_result',
+        'tool_use_id': 'tc_1',
+        'content': '[]',
+        'is_error': False,
+    }
+    assert blocks[1] == {
+        'type': 'tool_result',
+        'tool_use_id': 'tc_2',
+        'content': 'boom',
+        'is_error': True,
+    }
+
+
+def test_map_to_anthropic_format_tool_results_default_is_error_false():
+    messages = [
+        {
+            'role': 'tool_results',
+            'results': [
+                {'tool_call_id': 'tc_1', 'content': '[]'},
+            ],
+        }
+    ]
+    _, mapped = _map_to_anthropic_format(messages)
+
+    assert mapped[0]['content'][0]['is_error'] is False
 
 
 @pytest.fixture
@@ -276,3 +365,20 @@ async def test_generate_without_system_parts_uses_flat_string(provider):
         )
 
     assert captured_body['system'] == 'Be helpful.'
+
+
+@pytest.mark.asyncio
+async def test_generate_raises_llm_http_error_with_body(provider):
+    with respx.mock:
+        respx.post('https://api.anthropic.com/v1/messages').mock(
+            return_value=httpx.Response(
+                401,
+                json={'error': {'type': 'authentication_error', 'message': 'bad key'}},
+            )
+        )
+        with pytest.raises(LLMHTTPError) as excinfo:
+            await provider.generate(messages=[{'role': 'user', 'content': 'hi'}])
+
+    assert excinfo.value.status_code == 401
+    assert 'bad key' in str(excinfo.value)
+    assert excinfo.value.body == 'bad key'

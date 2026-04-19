@@ -19,6 +19,7 @@ from oppie.llm.base import (
     StreamResult,
     TokenUsage,
     ToolCallRequest,
+    _raise_for_llm_status,
 )
 
 logger = logging.getLogger(__name__)
@@ -119,7 +120,7 @@ class AnthropicProvider(LLMProvider):
                         'name': tool_choice['name'],
                     }
         resp = await self._client.post('/v1/messages', json=body)
-        resp.raise_for_status()
+        await _raise_for_llm_status(resp)
         data = resp.json()
         usage = TokenUsage(
             prompt_tokens=data['usage']['input_tokens'],
@@ -187,7 +188,7 @@ class AnthropicProvider(LLMProvider):
         prompt_tokens = 0
         completion_tokens = 0
         async with self._client.stream('POST', '/v1/messages', json=body) as resp:
-            resp.raise_for_status()
+            await _raise_for_llm_status(resp)
             async for line in resp.aiter_lines():
                 if not line or line.startswith(':'):
                     continue
@@ -246,9 +247,8 @@ def _map_to_anthropic_format(
     mapped: list[dict[str, Any]] = []
     for msg in messages:
         role = msg['role']
-        content = msg['content']
         if role == 'system':
-            system_parts.append(content)
+            system_parts.append(msg['content'])
         elif role == 'tool_results':
             mapped.append(
                 {
@@ -266,6 +266,7 @@ def _map_to_anthropic_format(
             )
         elif role == 'assistant' and 'tool_calls' in msg:
             blocks: list[dict] = []
+            content = msg.get('content')
             if content:
                 blocks.append({'type': 'text', 'text': content})
             for tc in msg['tool_calls']:
@@ -279,6 +280,6 @@ def _map_to_anthropic_format(
                 )
             mapped.append({'role': 'assistant', 'content': blocks})
         else:
-            mapped.append({'role': role, 'content': content})
+            mapped.append({'role': role, 'content': msg['content']})
     system = '\n\n'.join(system_parts) if system_parts else None
     return system, mapped
