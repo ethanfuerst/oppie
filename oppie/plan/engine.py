@@ -130,7 +130,7 @@ async def generate_plan(
         ):
             if isinstance(event, PlanOperationEvent):
                 operations.append(event.operation)
-            elif isinstance(event, TextDeltaEvent):
+            elif isinstance(event, TextDeltaEvent) and event.is_final:
                 text_parts.append(event.text)
             yield event
 

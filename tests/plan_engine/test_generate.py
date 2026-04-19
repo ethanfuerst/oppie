@@ -97,6 +97,34 @@ async def test_generate_plan_no_llm_raises(home, provider):
 
 
 @pytest.mark.asyncio
+async def test_generate_plan_excludes_research_text_from_risks(home, provider):
+    """Research-step narration must not pollute plan.risks; summary text does."""
+    ticket = make_ticket(ticket_id='T-1', status='open')
+    write_ticket(home, ticket)
+
+    mock_llm = make_plan_mock_llm(
+        [
+            {
+                'ticket_id': 'T-1',
+                'field': 'status',
+                'new_value': 'done',
+                'rationale': 'closing',
+            }
+        ],
+        research_text='Hmm, let me look at the tickets.',
+        summary_text='Closing T-1 as requested.',
+    )
+
+    with patch('oppie.plan.engine.create_llm_provider', return_value=mock_llm):
+        plan = await _consume_plan(provider, PLAN_TEST_CONFIG, 'close T-1')
+
+    joined_risks = '\n'.join(plan.risks)
+
+    assert 'Hmm, let me look at the tickets.' not in joined_risks
+    assert 'Closing T-1 as requested.' in joined_risks
+
+
+@pytest.mark.asyncio
 async def test_amend_links_parent(home, provider):
     ticket = make_ticket(ticket_id='T-1', status='open')
     write_ticket(home, ticket)

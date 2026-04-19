@@ -104,6 +104,38 @@ async def test_generate_ask_no_llm_raises(home, provider):
 
 
 @pytest.mark.asyncio
+async def test_generate_ask_excludes_research_text_from_answer(home, provider):
+    """Research-step response.text must not appear in AskResult.answer."""
+    write_ticket(home, make_ticket(ticket_id='T-1', status='open'))
+
+    research = LLMResponse(
+        text='Leaked research narration.',
+        json=None,
+        usage=TokenUsage(80, 20),
+        tool_calls=[],
+        stop_reason='end_turn',
+    )
+
+    mock_llm = AsyncMock()
+    mock_llm.generate = AsyncMock(side_effect=[research])
+    mock_llm.stream = AsyncMock(
+        return_value=_mock_stream_result('Clean answer.', TokenUsage(100, 50))
+    )
+    mock_llm.__aenter__ = AsyncMock(return_value=mock_llm)
+    mock_llm.__aexit__ = AsyncMock(return_value=False)
+
+    events = []
+    with patch('oppie.ask.engine.create_llm_provider', return_value=mock_llm):
+        async for event in generate_ask(provider, _TEST_CONFIG, 'q'):
+            events.append(event)
+
+    ask_result = next(e.result for e in events if isinstance(e, AskResultEvent))
+
+    assert ask_result.answer == 'Clean answer.'
+    assert 'Leaked research narration.' not in ask_result.answer
+
+
+@pytest.mark.asyncio
 async def test_generate_ask_yields_events(home, provider):
     write_ticket(home, make_ticket(ticket_id='T-1', status='open'))
 

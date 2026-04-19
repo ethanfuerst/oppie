@@ -51,6 +51,7 @@ class EngineStep:
     tool_choice: str | dict | None  # None=auto, 'any', {'name': '...'}
     max_turns: int
     inject_prompt: str | None = None
+    is_final: bool = False
 
 
 def _plan_steps(all_tools: list[Tool]) -> list[EngineStep]:
@@ -87,6 +88,7 @@ def _plan_steps(all_tools: list[Tool]) -> list[EngineStep]:
             inject_prompt=(
                 'Summarize the proposed operations and list any risks or concerns.'
             ),
+            is_final=True,
         ),
     ]
 
@@ -110,6 +112,7 @@ def _ask_steps(all_tools: list[Tool]) -> list[EngineStep]:
             tool_choice=None,
             max_turns=1,
             inject_prompt='Now answer the question based on the ticket data you gathered.',
+            is_final=True,
         ),
     ]
 
@@ -149,7 +152,11 @@ async def _run_step(
             collected_text = ''
             async for chunk in stream_result:
                 collected_text += chunk
-                yield TextDeltaEvent(text=chunk)
+                yield TextDeltaEvent(
+                    text=chunk,
+                    step_name=step.name,
+                    is_final=step.is_final,
+                )
             usage = stream_result.usage or TokenUsage(
                 prompt_tokens=0, completion_tokens=0
             )
@@ -170,7 +177,11 @@ async def _run_step(
             total_usage = total_usage + response.usage
 
             if response.text:
-                yield TextDeltaEvent(text=response.text)
+                yield TextDeltaEvent(
+                    text=response.text,
+                    step_name=step.name,
+                    is_final=step.is_final,
+                )
 
             if not response.tool_calls:
                 break
@@ -266,7 +277,7 @@ async def run_engine(
 
     for step in steps:
         logger.info('Engine step: %s', step.name)
-        yield StepStartEvent(step_name=step.name)
+        yield StepStartEvent(step_name=step.name, is_final=step.is_final)
         step_start = time.monotonic()
         async for event in _run_step(
             step=step,
@@ -308,7 +319,7 @@ async def collect_engine_result(
 
     async for event in events:
         all_events.append(event)
-        if isinstance(event, TextDeltaEvent):
+        if isinstance(event, TextDeltaEvent) and event.is_final:
             text_parts.append(event.text)
         elif isinstance(event, PlanOperationEvent):
             operations.append(event.operation)

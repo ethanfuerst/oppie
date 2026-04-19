@@ -5,7 +5,7 @@ from click.testing import CliRunner
 
 from oppie.ask.engine import AskResult
 from oppie.cli import cli
-from oppie.events import AskResultEvent
+from oppie.events import AskResultEvent, StepStartEvent, TextDeltaEvent
 from oppie.intent import Intent, IntentClassificationError
 from oppie.models.operation import Operation
 from oppie.session import Session
@@ -65,6 +65,68 @@ def test_prompt_unmatched_routes_to_ask(tmp_path):
 
     assert result.exit_code == 0
     mock_ask.assert_called_once()
+
+
+async def _mock_ask_generator_with_research_and_answer(*args, **kwargs):
+    """Yield a research TextDelta then an answer TextDelta + AskResult."""
+    yield StepStartEvent(step_name='research', is_final=False)
+    yield TextDeltaEvent(
+        text='RESEARCH_NARRATION', step_name='research', is_final=False
+    )
+    yield StepStartEvent(step_name='answer', is_final=True)
+    yield TextDeltaEvent(text='ANSWER_TEXT', step_name='answer', is_final=True)
+    yield AskResultEvent(
+        result=AskResult(
+            answer='ANSWER_TEXT',
+            artifact_path=None,
+            run_id='test-run',
+            duration=1.0,
+            usage=None,
+        )
+    )
+
+
+def test_prompt_ask_emits_only_final_step_text(tmp_path):
+    """Regression for ETH-410: only answer text reaches stdout, not research."""
+    home = setup_cli_instance(tmp_path)
+    runner = CliRunner()
+
+    with patch(
+        'oppie.cli.commands.prompt.classify_intent', new_callable=AsyncMock
+    ) as mock_classify:
+        mock_classify.return_value = Intent.QUESTION
+        with patch(
+            'oppie.cli.commands.prompt.generate_ask',
+            side_effect=_mock_ask_generator_with_research_and_answer,
+        ):
+            result = runner.invoke(cli, ['--home', str(home), 'what is the state'])
+
+    assert result.exit_code == 0
+    assert 'ANSWER_TEXT' in result.output
+    assert 'RESEARCH_NARRATION' not in result.output
+
+
+def test_prompt_ask_debug_surfaces_research_text(tmp_path):
+    """With --debug, research-step text appears dim-prefixed alongside the answer."""
+    home = setup_cli_instance(tmp_path)
+    runner = CliRunner()
+
+    with patch(
+        'oppie.cli.commands.prompt.classify_intent', new_callable=AsyncMock
+    ) as mock_classify:
+        mock_classify.return_value = Intent.QUESTION
+        with patch(
+            'oppie.cli.commands.prompt.generate_ask',
+            side_effect=_mock_ask_generator_with_research_and_answer,
+        ):
+            result = runner.invoke(
+                cli, ['--home', str(home), '--debug', 'what is the state']
+            )
+
+    assert result.exit_code == 0
+    assert 'ANSWER_TEXT' in result.output
+    assert 'RESEARCH_NARRATION' in result.output
+    assert '[research]' in result.output
 
 
 def _mock_classify_as_apply():

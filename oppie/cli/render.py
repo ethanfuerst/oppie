@@ -173,15 +173,18 @@ class EventRenderer:
         console: Console | None = None,
         *,
         sync_duration: float | None = None,
+        debug: bool = False,
     ) -> None:
         self.mode = mode
         self.console = console or default_console
         self.sync_duration = sync_duration
+        self.debug = debug
         self.ask_result: AskResult | None = None
         self.plan: Plan | None = None
         self._spinner = _SpinnerController(self.console)
         self._sync_status: Status | None = None
         self._in_text = False
+        self._debug_research_active = False
         self._operations_started = False
 
     @property
@@ -242,11 +245,30 @@ class EventRenderer:
         self._spinner.show_thinking()
 
     def on_text_delta(self, event: TextDeltaEvent) -> None:
+        if not event.is_final:
+            if not self.debug:
+                return
+            self._render_debug_research_chunk(event)
+            return
+        if self._debug_research_active:
+            self.console.print()
+            self._debug_research_active = False
         self._spinner.stop()
         if not self._in_text:
             self.console.print()
             self._in_text = True
         self.console.print(event.text, end='', soft_wrap=True, highlight=False)
+
+    def _render_debug_research_chunk(self, event: TextDeltaEvent) -> None:
+        self._spinner.stop()
+        if not self._debug_research_active:
+            self.console.print()
+            prefix = event.step_name or 'research'
+            self.console.print(f'[dim]\\[{prefix}][/dim] ', end='')
+            self._debug_research_active = True
+        self.console.print(
+            f'[dim]{event.text}[/dim]', end='', soft_wrap=True, highlight=False
+        )
 
     def on_tool_call(self, event: ToolCallEvent) -> None:
         self._spinner.stop()
@@ -274,9 +296,12 @@ class EventRenderer:
         parts = [f'{total / 1000:.1f}k tokens']
         if self.sync_duration is not None:
             parts.append(f'sync {self.sync_duration:.1f}s')
-        label = 'plan' if self.mode is RenderMode.PLAN else 'ask'
-        step_total = sum(event.step_durations.values()) or event.duration
-        parts.append(f'{label} {step_total:.1f}s')
+        if event.step_durations:
+            for step_name, step_duration in event.step_durations.items():
+                parts.append(f'{step_name} {step_duration:.1f}s')
+        else:
+            label = 'plan' if self.mode is RenderMode.PLAN else 'ask'
+            parts.append(f'{label} {event.duration:.1f}s')
         self.console.print(f'[dim]* {" \u00b7 ".join(parts)}[/dim]')
 
     def on_ask_result(self, event: AskResultEvent) -> None:
@@ -286,6 +311,9 @@ class EventRenderer:
         self.plan = event.plan
 
     def _end_text_block(self) -> None:
+        if self._debug_research_active:
+            self.console.print()
+            self._debug_research_active = False
         if self._in_text:
             self.console.print()
             self._in_text = False

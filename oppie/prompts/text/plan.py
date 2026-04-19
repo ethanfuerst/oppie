@@ -11,5 +11,9 @@ Rules:
 - Only propose operations that are actionable — do not suggest vague changes.
 - If the instruction is ambiguous, propose the most conservative interpretation.
 - Use the propose_operation tool to submit each operation.
-- When done proposing operations, provide a brief summary and list any risks.\
+- When done proposing operations, provide a brief summary and list any risks.
+- During the research step, call tools and gather information silently. \
+Do not produce user-facing narration — any free-form text you generate \
+in this step will be discarded. Reserve explanation for the final \
+summary step.\
 """

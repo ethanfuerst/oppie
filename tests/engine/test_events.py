@@ -256,6 +256,7 @@ async def test_text_delta_events_from_stream(tool_context):
     assert len(text_events) > 0
     full_text = ''.join(e.text for e in text_events)
     assert full_text == 'There are 0 open tickets.'
+    assert all(e.step_name == 'answer' and e.is_final for e in text_events)
 
 
 @pytest.mark.asyncio
@@ -284,6 +285,40 @@ async def test_thinking_event_per_llm_call(tool_context):
 
     # 1 for research generate(), 1 for answer stream()
     assert len(thinking_events) == 2
+
+
+@pytest.mark.asyncio
+async def test_research_step_text_tagged_non_final(tool_context):
+    """Research-step response.text emits a TextDeltaEvent with is_final=False."""
+    research_with_text = LLMResponse(
+        text='Let me check the tickets...',
+        json=None,
+        usage=TokenUsage(80, 20),
+        tool_calls=[],
+        stop_reason='end_turn',
+    )
+    mock_llm = AsyncMock()
+    mock_llm.generate = AsyncMock(side_effect=[research_with_text])
+    mock_llm.stream = AsyncMock(
+        return_value=_mock_stream_result('The answer.', TokenUsage(100, 50))
+    )
+
+    events = [
+        e
+        async for e in run_engine(
+            prompt='q',
+            tools=[SEARCH_TICKETS_TOOL, GET_TICKET_TOOL],
+            llm=mock_llm,
+            tool_context=tool_context,
+            mode=EngineMode.ASK,
+            system_prompt='test',
+        )
+    ]
+    text_events = [e for e in events if isinstance(e, TextDeltaEvent)]
+    tagged = {(e.step_name, e.is_final) for e in text_events}
+
+    assert ('research', False) in tagged
+    assert any(e.step_name == 'answer' and e.is_final for e in text_events)
 
 
 @pytest.mark.asyncio

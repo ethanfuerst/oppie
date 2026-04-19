@@ -30,6 +30,7 @@ class StepStartEvent:
     """An engine step is starting."""
 
     step_name: str
+    is_final: bool = False
 
 
 @dataclass(slots=True)
@@ -39,9 +40,18 @@ class ThinkingEvent:
 
 @dataclass(slots=True)
 class TextDeltaEvent:
-    """Incremental text output from the LLM."""
+    """Incremental text output from the LLM.
+
+    ``step_name`` identifies the engine step that produced the chunk.
+    ``is_final`` is True only for the final step of the mode (ask: answer;
+    plan: summary). Consumers must gate user-facing rendering and persisted
+    artifacts on ``is_final=True``; non-final text is intermediate research
+    chatter and is only surfaced when the renderer is in debug mode.
+    """
 
     text: str
+    step_name: str = ''
+    is_final: bool = False
 
 
 @dataclass(slots=True)
