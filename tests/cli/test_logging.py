@@ -6,10 +6,10 @@ from oppie.cli import cli
 from oppie.logging import configure_logging
 
 
-def test_default_level_is_info():
+def test_default_level_is_warning():
     configure_logging(debug=False)
 
-    assert logging.getLogger().level == logging.INFO
+    assert logging.getLogger().level == logging.WARNING
 
 
 def test_debug_flag_sets_debug_level():
@@ -38,7 +38,7 @@ def test_invalid_env_var_warns_and_falls_back(monkeypatch, capsys):
     captured = capsys.readouterr()
 
     assert 'BANANA' in captured.err
-    assert logging.getLogger().level == logging.INFO
+    assert logging.getLogger().level == logging.WARNING
 
 
 def test_debug_flag_via_cli():
@@ -95,3 +95,49 @@ def test_stderr_fallback_when_no_home():
         isinstance(h, logging.StreamHandler) and not isinstance(h, logging.FileHandler)
         for h in root.handlers
     )
+
+
+def test_default_emits_no_stdout(capsys):
+    configure_logging(debug=False)
+    test_logger = logging.getLogger('oppie.test_default_stdout')
+    test_logger.info('should be filtered')
+    test_logger.warning('should reach stderr')
+    for handler in logging.getLogger().handlers:
+        handler.flush()
+    captured = capsys.readouterr()
+
+    assert captured.out == ''
+    assert 'should be filtered' not in captured.err
+    assert 'should reach stderr' in captured.err
+
+
+def test_debug_emits_no_stdout(capsys):
+    configure_logging(debug=True)
+    test_logger = logging.getLogger('oppie.test_debug_stdout')
+    test_logger.debug('debug line')
+    test_logger.info('info line')
+    for handler in logging.getLogger().handlers:
+        handler.flush()
+    captured = capsys.readouterr()
+
+    assert captured.out == ''
+    assert 'debug line' in captured.err
+    assert 'info line' in captured.err
+
+
+def test_httpx_logger_capped_with_debug():
+    configure_logging(debug=True)
+
+    assert logging.getLogger('httpx').level == logging.WARNING
+
+
+def test_httpcore_logger_capped_with_debug():
+    configure_logging(debug=True)
+
+    assert logging.getLogger('httpcore').level == logging.WARNING
+
+
+def test_urllib3_logger_capped_with_debug():
+    configure_logging(debug=True)
+
+    assert logging.getLogger('urllib3').level == logging.WARNING
