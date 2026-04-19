@@ -31,6 +31,7 @@ def handle_prompt(ctx: click.Context, prompt: str, force: bool) -> None:
     home = ctx.obj['resolved_home']
     config = ctx.obj['config']
     no_sync = ctx.obj.get('no_sync', False)
+    debug = ctx.obj.get('debug', False)
 
     if config is None or config.llm is None:
         error('LLM is not configured. Run "oppie init" to set up an LLM backend.')
@@ -52,16 +53,16 @@ def handle_prompt(ctx: click.Context, prompt: str, force: bool) -> None:
     logger.info('Classified prompt as %s', intent.value)
 
     if intent == Intent.QUESTION:
-        _handle_ask(home, config, prompt, no_sync=no_sync)
+        _handle_ask(home, config, prompt, no_sync=no_sync, debug=debug)
     elif intent == Intent.INSTRUCTION:
-        _handle_plan(home, config, prompt, no_sync=no_sync)
+        _handle_plan(home, config, prompt, no_sync=no_sync, debug=debug)
     elif intent == Intent.APPLY:
         _handle_apply(home, config, prompt, no_sync=no_sync, force=force)
 
 
-def _handle_ask(home, config, prompt: str, *, no_sync: bool) -> None:
+def _handle_ask(home, config, prompt: str, *, no_sync: bool, debug: bool) -> None:
     """Route to ask behavior using the event renderer."""
-    renderer = EventRenderer(mode=RenderMode.ASK)
+    renderer = EventRenderer(mode=RenderMode.ASK, debug=debug)
     with render_sync(renderer, home, config, no_sync=no_sync) as (provider, _):
         asyncio.run(renderer.consume(generate_ask(provider, config, prompt)))
 
@@ -77,9 +78,9 @@ def _handle_ask(home, config, prompt: str, *, no_sync: bool) -> None:
     session.add_run_id(result.run_id)
 
 
-def _handle_plan(home, config, prompt: str, *, no_sync: bool) -> None:
+def _handle_plan(home, config, prompt: str, *, no_sync: bool, debug: bool) -> None:
     """Route to plan behavior using the event renderer."""
-    renderer = EventRenderer(mode=RenderMode.PLAN)
+    renderer = EventRenderer(mode=RenderMode.PLAN, debug=debug)
     with render_sync(renderer, home, config, no_sync=no_sync) as (provider, _):
         asyncio.run(
             renderer.consume(generate_plan(provider, config, prompt, save=False))

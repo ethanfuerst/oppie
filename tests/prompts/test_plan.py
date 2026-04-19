@@ -25,6 +25,12 @@ def _make_ticket(ticket_id='T-1', title='Fix bug', status='open', priority='high
     )
 
 
+def test_plan_base_prompt_instructs_silent_research():
+    """ETH-412: plan base prompt discourages research-step narration."""
+    assert 'research step' in PLAN_BASE_PROMPT
+    assert 'discarded' in PLAN_BASE_PROMPT
+
+
 def test_build_plan_prompt_includes_base(tmp_path):
     home = setup_instance(tmp_path)
 

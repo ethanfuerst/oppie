@@ -395,6 +395,37 @@ async def test_plan_research_step_multi_turn(home, tool_context):
 
 
 @pytest.mark.asyncio
+async def test_collect_engine_result_excludes_non_final_text(tool_context):
+    """EngineResult.text only accumulates final-step TextDeltaEvents."""
+    research = LLMResponse(
+        text='I should search tickets.',
+        json=None,
+        usage=TokenUsage(80, 20),
+        tool_calls=[],
+        stop_reason='end_turn',
+    )
+    mock_llm = AsyncMock()
+    mock_llm.generate = AsyncMock(side_effect=[research])
+    mock_llm.stream = AsyncMock(
+        return_value=_mock_stream_result('Final answer.', TokenUsage(100, 50))
+    )
+
+    result, _ = await collect_engine_result(
+        run_engine(
+            prompt='q',
+            tools=[SEARCH_TICKETS_TOOL, GET_TICKET_TOOL],
+            llm=mock_llm,
+            tool_context=tool_context,
+            mode=EngineMode.ASK,
+            system_prompt='test',
+        )
+    )
+
+    assert 'I should search tickets.' not in result.text
+    assert result.text == 'Final answer.'
+
+
+@pytest.mark.asyncio
 async def test_stats_event_emitted_at_end(tool_context):
     """StatsEvent is the last event and carries aggregated usage and turns."""
     r1 = LLMResponse(text='', json=None, usage=TokenUsage(100, 50), tool_calls=[])

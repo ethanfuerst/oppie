@@ -20,19 +20,24 @@ def make_mock_llm(response_text='', tool_calls=None, stop_reason='end_turn'):
     return mock_llm
 
 
-def make_plan_mock_llm(operations_data):
+def make_plan_mock_llm(
+    operations_data,
+    research_text: str = '',
+    summary_text: str = 'Plan complete.',
+):
     """Create a mock LLM that simulates the 3-step plan engine flow.
 
-    Step 1 (research): no tool calls
-    Step 2 (propose): one propose_operation tool call per operation
-    Step 3 (summary): text-only response
+    Step 1 (research): no tool calls; optional ``research_text`` simulates a
+    chatty model that narrates before stopping.
+    Step 2 (propose): one propose_operation tool call per operation.
+    Step 3 (summary): text-only response — ``summary_text`` streams back.
 
     operations_data is a list of dicts like:
     [{'ticket_id': 'T-1', 'field': 'status', 'new_value': 'done', 'rationale': 'close it'}]
     """
     # Step 1: research - no tool calls
     research_response = LLMResponse(
-        text='',
+        text=research_text,
         json=None,
         usage=TokenUsage(80, 20),
         tool_calls=[],
@@ -74,7 +79,7 @@ def make_plan_mock_llm(operations_data):
         ]
     )
     mock_llm.stream = AsyncMock(
-        return_value=_mock_stream_result('Plan complete.', TokenUsage(60, 30))
+        return_value=_mock_stream_result(summary_text, TokenUsage(60, 30))
     )
     mock_llm.__aenter__ = AsyncMock(return_value=mock_llm)
     mock_llm.__aexit__ = AsyncMock(return_value=None)

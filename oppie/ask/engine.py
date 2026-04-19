@@ -89,7 +89,7 @@ async def generate_ask(
             temperature=temperature,
             system_parts=system_parts_dicts,
         ):
-            if isinstance(event, TextDeltaEvent):
+            if isinstance(event, TextDeltaEvent) and event.is_final:
                 text_parts.append(event.text)
             elif isinstance(event, StatsEvent):
                 result_usage = event.usage

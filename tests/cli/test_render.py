@@ -66,14 +66,15 @@ def test_ask_flow_streams_text_and_captures_result():
     events = [
         SyncStartEvent(provider='local'),
         SyncDoneEvent(ticket_count=3, duration=0.2),
-        StepStartEvent(step_name='answer'),
+        StepStartEvent(step_name='answer', is_final=True),
         ThinkingEvent(),
-        TextDeltaEvent(text='Hello, '),
-        TextDeltaEvent(text='world.'),
+        TextDeltaEvent(text='Hello, ', step_name='answer', is_final=True),
+        TextDeltaEvent(text='world.', step_name='answer', is_final=True),
         StatsEvent(
             usage=TokenUsage(prompt_tokens=100, completion_tokens=50),
             turns=1,
             duration=1.5,
+            step_durations={'research': 1.2, 'answer': 0.3},
         ),
         AskResultEvent(result=_make_ask_result()),
     ]
@@ -85,7 +86,8 @@ def test_ask_flow_streams_text_and_captures_result():
     assert 'Hello, world.' in out
     assert '0.1k tokens' in out
     assert 'turns' not in out
-    assert 'ask ' in out
+    assert 'research 1.2s' in out
+    assert 'answer 0.3s' in out
     assert renderer.ask_result is not None
     assert renderer.ask_result.answer == 'Hello, world.'
 
@@ -129,7 +131,7 @@ def test_thinking_clears_on_first_text_delta():
     renderer, _ = _make_renderer(RenderMode.ASK)
     events = [
         ThinkingEvent(),
-        TextDeltaEvent(text='hi'),
+        TextDeltaEvent(text='hi', step_name='answer', is_final=True),
     ]
     asyncio.run(renderer.consume(_gen(events)))
 
@@ -172,7 +174,7 @@ def test_sync_start_without_sync_done_still_completes():
 def test_text_block_terminates_on_step_start():
     renderer, buf = _make_renderer(RenderMode.ASK)
     events = [
-        TextDeltaEvent(text='partial'),
+        TextDeltaEvent(text='partial', step_name='answer', is_final=True),
         StepStartEvent(step_name='next'),
     ]
     asyncio.run(renderer.consume(_gen(events)))
@@ -412,6 +414,80 @@ def test_ensure_status_handles_missing_event_loop():
 
     assert controller._tick_task is None
     controller.stop()
+
+
+def test_on_text_delta_suppresses_non_final_by_default():
+    """Non-final TextDeltaEvents are not rendered when debug=False."""
+    renderer, buf = _make_renderer(RenderMode.ASK)
+    events = [
+        StepStartEvent(step_name='research', is_final=False),
+        TextDeltaEvent(text='research chatter', step_name='research', is_final=False),
+        StepStartEvent(step_name='answer', is_final=True),
+        TextDeltaEvent(text='the real answer', step_name='answer', is_final=True),
+    ]
+    asyncio.run(renderer.consume(_gen(events)))
+
+    out = buf.getvalue()
+
+    assert 'research chatter' not in out
+    assert 'the real answer' in out
+
+
+def test_on_text_delta_shows_research_dim_in_debug():
+    """With debug=True, non-final text renders dim with a step prefix."""
+    buf = io.StringIO()
+    console = Console(file=buf, force_terminal=False, width=120)
+    renderer = EventRenderer(RenderMode.ASK, console=console, debug=True)
+    events = [
+        StepStartEvent(step_name='research', is_final=False),
+        TextDeltaEvent(text='research chatter', step_name='research', is_final=False),
+        StepStartEvent(step_name='answer', is_final=True),
+        TextDeltaEvent(text='the real answer', step_name='answer', is_final=True),
+    ]
+    asyncio.run(renderer.consume(_gen(events)))
+
+    out = buf.getvalue()
+
+    assert 'research chatter' in out
+    assert '[research]' in out
+    assert 'the real answer' in out
+
+
+def test_on_text_delta_closes_debug_block_before_final_text():
+    """Final-step text closes an open debug research block without a StepStartEvent."""
+    buf = io.StringIO()
+    console = Console(file=buf, force_terminal=False, width=120)
+    renderer = EventRenderer(RenderMode.ASK, console=console, debug=True)
+    events = [
+        TextDeltaEvent(text='research chatter', step_name='research', is_final=False),
+        TextDeltaEvent(text='final answer', step_name='answer', is_final=True),
+    ]
+    asyncio.run(renderer.consume(_gen(events)))
+
+    assert renderer._debug_research_active is False
+    out = buf.getvalue()
+
+    assert 'research chatter' in out
+    assert 'final answer' in out
+
+
+def test_stats_line_shows_per_step_timings():
+    """on_stats emits one chip per step when step_durations is populated."""
+    renderer, buf = _make_renderer(RenderMode.ASK)
+    events = [
+        StatsEvent(
+            usage=TokenUsage(prompt_tokens=100, completion_tokens=50),
+            turns=2,
+            duration=1.5,
+            step_durations={'research': 1.2, 'answer': 0.3},
+        ),
+    ]
+    asyncio.run(renderer.consume(_gen(events)))
+
+    out = buf.getvalue()
+
+    assert 'research 1.2s' in out
+    assert 'answer 0.3s' in out
 
 
 def test_stats_includes_sync_duration():
